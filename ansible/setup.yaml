@@ -3,6 +3,9 @@
   hosts: all
   become: true
   gather_facts: true
+  vars:
+    redis_password: "IntraNet-Redis-2026!ChangeMe"
+    redis_bind: "127.0.0.1 {{ ansible_default_ipv4.address }}"
 
   tasks:
     - name: Update apt cache
@@ -26,11 +29,39 @@
         enabled: true
         state: started
 
+    - name: Configure Redis password when provided
+      ansible.builtin.lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^#?\s*requirepass\s+'
+        line: "requirepass {{ redis_password }}"
+      when: redis_password | length > 0
+      notify: Restart Redis
+
+    - name: Restrict Redis bind address
+      ansible.builtin.lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^\s*bind\s+'
+        line: "bind {{ redis_bind }}"
+      notify: Restart Redis
+
+    - name: Ensure Redis protected mode is enabled
+      ansible.builtin.lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^#?\s*protected-mode\s+'
+        line: "protected-mode yes"
+      notify: Restart Redis
+
     - name: Enable and start SNMP daemon
       ansible.builtin.service:
         name: snmpd
         enabled: true
         state: started
+
+  handlers:
+    - name: Restart Redis
+      ansible.builtin.service:
+        name: redis-server
+        state: restarted
 
 - name: Configure control and API node
   hosts: node1

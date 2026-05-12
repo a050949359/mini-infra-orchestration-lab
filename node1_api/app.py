@@ -51,7 +51,9 @@ def validate_enqueue_body(body: Any) -> tuple[bool, str | None]:
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["DB_PATH"] = os.getenv("JOB_DB_PATH", "/tmp/node1_jobs.db")
-    app.config["REDIS_URL"] = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+    redis_password = os.getenv("REDIS_PASSWORD", "IntraNet-Redis-2026!ChangeMe")
+    default_redis_url = f"redis://:{redis_password}@127.0.0.1:6379/0"
+    app.config["REDIS_URL"] = os.getenv("REDIS_URL", default_redis_url)
     app.config["QUEUE_STREAM_KEY"] = os.getenv("QUEUE_STREAM_KEY", "jobs:stream")
 
     def get_db() -> sqlite3.Connection:

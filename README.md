@@ -21,10 +21,25 @@ chmod +x ./ansible/setup_ansible_server.sh
    - `/etc/ansible/ansible.cfg`
 6. 對所有主機執行連線測試（`/etc/ansible/ping.yaml`）
 
-手動執行 playbook：
+7. 手動執行 playbook：
 
 ```bash
 source ~/ansible-env/bin/activate
 ansible-playbook /etc/ansible/setup.yaml
 ansible-playbook /etc/ansible/ping.yaml
+```
+
+## YAML 功能簡介
+
+- `ansible/ping.yaml`: `setup_ansible_server.sh` 最末尾會做的主機連線測試（`ansible.builtin.ping`）
+- `ansible/setup.yaml`: 基礎環境安裝與初始化（Redis、SNMP、Python venv 等）
+- `ansible/deploy.yaml`: 應用部署（node1 Flask API、node2 Go worker、systemd 服務）
+
+## 手動設定 iptables（node1）
+
+- 開放 PORT `5000` `6379` 給內網
+
+```bash
+sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 5000 -j ACCEPT
+sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 6379 -j ACCEPT
 ```

@@ -7,8 +7,41 @@
     api_app_dir: /opt/node1_api
     api_venv_path: /opt/mini-orch-venv
     api_service_name: node1-api
+    api_data_dir: /var/lib/node1_api
+    sqlite_db_path: /var/lib/node1_api/jobs.db
+    sqlite_backup_dir: /var/backups/node1_api
+    redis_password: "IntraNet-Redis-2026!ChangeMe"
+    redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
 
   tasks:
+    - name: Ensure SQLite backup directory exists
+      ansible.builtin.file:
+        path: "{{ sqlite_backup_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check existing SQLite database
+      ansible.builtin.stat:
+        path: "{{ sqlite_db_path }}"
+      register: sqlite_db_stat
+
+    - name: Backup SQLite database before redeploy
+      ansible.builtin.copy:
+        src: "{{ sqlite_db_path }}"
+        dest: "{{ sqlite_backup_dir }}/jobs-{{ ansible_date_time.iso8601_basic_short }}.db"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0640"
+      when: sqlite_db_stat.stat.exists
+
+    - name: Remove API app directory for clean redeploy
+      ansible.builtin.file:
+        path: "{{ api_app_dir }}"
+        state: absent
+
     - name: Ensure API app directory exists
       ansible.builtin.file:
         path: "{{ api_app_dir }}"
@@ -59,12 +92,17 @@
         mode: "0644"
         content: |
           JOB_DB_PATH=/var/lib/node1_api/jobs.db
-          REDIS_URL=redis://127.0.0.1:6379/0
+          REDIS_URL={{ redis_url }}
           QUEUE_STREAM_KEY=jobs:stream
+
+    - name: Remove API data directory for clean redeploy
+      ansible.builtin.file:
+        path: "{{ api_data_dir }}"
+        state: absent
 
     - name: Ensure API data directory exists
       ansible.builtin.file:
-        path: /var/lib/node1_api
+        path: "{{ api_data_dir }}"
         state: directory
         owner: root
         group: root
@@ -115,6 +153,9 @@
     worker_binary_src: ../node2_worker/bin/node2-worker
     worker_binary_dest: /usr/local/bin/node2-worker
     worker_service_name: node2-worker
+    redis_password: "IntraNet-Redis-2026!ChangeMe"
+    node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | default(hostvars['node1']['ansible_host'] | default('127.0.0.1')) }}"
+    redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
 
   tasks:
     - name: Check worker binary exists on control node
@@ -146,7 +187,7 @@
         group: root
         mode: "0644"
         content: |
-          REDIS_URL=redis://127.0.0.1:6379/0
+          REDIS_URL={{ redis_url }}
           QUEUE_STREAM_KEY=jobs:stream
           QUEUE_GROUP=node2-workers
           QUEUE_CONSUMER={{ inventory_hostname }}
