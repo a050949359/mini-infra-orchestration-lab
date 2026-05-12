@@ -58,3 +58,9 @@ ansible-playbook /etc/ansible/deploy.yaml
 sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 5000 -j ACCEPT
 sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 6379 -j ACCEPT
 ```
+
+## systemd 服務名稱
+
+- node1 API: `mini-orch-api`
+- node2 worker: `mini-orch-worker`
+

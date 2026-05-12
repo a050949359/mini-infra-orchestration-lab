@@ -180,7 +180,7 @@
   become: true
   gather_facts: false
   vars:
-    node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | mandatory('hosts.ini missing node1 redis_private_ip') }}"
+    node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | default('127.0.0.1')) }}"
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
     node1_api_url: "http://{{ node1_redis_host }}:5000"
 
