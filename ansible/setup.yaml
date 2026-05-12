@@ -16,6 +16,8 @@
           - redis-server
           - snmp
           - snmpd
+          - net-tools
+          - iproute2
         state: present
 
     - name: Enable and start Redis
