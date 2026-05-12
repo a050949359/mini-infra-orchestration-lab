@@ -14,15 +14,17 @@ chmod +x ./ansible/setup_ansible_server.sh
 2. 確認 python3.12
 3. 建立/啟用 venv `~/ansible-env`
 4. 在 venv 內安裝 `ansible-core`
-5. 建立 `~/ansible/` 並放入以下檔案：
-   - `~/ansible/main.yaml`
-   - `~/ansible/hosts.ini`
-   - `~/ansible/ansible.cfg`
-6. 對所有主機執行連線測試（ansible ping）
+5. 建立 `/etc/ansible/` 並放入以下檔案：
+   - `/etc/ansible/setup.yaml`
+   - `/etc/ansible/ping.yaml`
+   - `/etc/ansible/hosts.ini`
+   - `/etc/ansible/ansible.cfg`
+6. 對所有主機執行連線測試（`/etc/ansible/ping.yaml`）
 
 手動執行 playbook：
 
 ```bash
 source ~/ansible-env/bin/activate
-cd ~/ansible && ansible-playbook main.yaml
+ansible-playbook /etc/ansible/setup.yaml
+ansible-playbook /etc/ansible/ping.yaml
 ```

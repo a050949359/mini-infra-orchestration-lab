@@ -9,7 +9,8 @@ VENV_NAME="ansible-env"
 VENV_PATH="$HOME/${VENV_NAME}"
 ANSIBLE_HOME="/etc/ansible"
 HOSTS_INI_SRC="${SCRIPT_DIR}/hosts.ini"
-PLAYBOOK_SRC="${SCRIPT_DIR}/main.yaml"
+SETUP_SRC="${SCRIPT_DIR}/setup.yaml"
+PING_SRC="${SCRIPT_DIR}/ping.yaml"
 
 log()   { printf '\e[32m[setup]\e[0m %s\n' "$1"; }
 warn()  { printf '\e[33m[warn]\e[0m  %s\n' "$1"; }
@@ -98,13 +99,22 @@ setup_ansible_dir() {
   run_sudo mkdir -p "${ANSIBLE_HOME}"
   log "Ansible home: ${ANSIBLE_HOME}"
 
-  # main.yaml
-  if [[ -f "${PLAYBOOK_SRC}" ]]; then
-    run_sudo cp -n "${PLAYBOOK_SRC}" "${ANSIBLE_HOME}/main.yaml" 2>/dev/null \
-      && log "Placed: ${ANSIBLE_HOME}/main.yaml" \
-      || log "Skip (exists): ${ANSIBLE_HOME}/main.yaml"
+  # setup.yaml
+  if [[ -f "${SETUP_SRC}" ]]; then
+    run_sudo cp -n "${SETUP_SRC}" "${ANSIBLE_HOME}/setup.yaml" 2>/dev/null \
+      && log "Placed: ${ANSIBLE_HOME}/setup.yaml" \
+      || log "Skip (exists): ${ANSIBLE_HOME}/setup.yaml"
   else
-    warn "main.yaml not found in ${SCRIPT_DIR}, skipping."
+    warn "setup.yaml not found in ${SCRIPT_DIR}, skipping."
+  fi
+
+  # ping.yaml
+  if [[ -f "${PING_SRC}" ]]; then
+    run_sudo cp -n "${PING_SRC}" "${ANSIBLE_HOME}/ping.yaml" 2>/dev/null \
+      && log "Placed: ${ANSIBLE_HOME}/ping.yaml" \
+      || log "Skip (exists): ${ANSIBLE_HOME}/ping.yaml"
+  else
+    warn "ping.yaml not found in ${SCRIPT_DIR}, skipping."
   fi
 
   # hosts.ini → /etc/ansible/hosts.ini
@@ -138,13 +148,14 @@ EOF
 
 # ── 5. 連線測試（ansible playbook）────────────────────
 run_ping_test() {
-  log "Run connectivity test (ansible-playbook ${ANSIBLE_HOME}/main.yaml)"
+  log "Run connectivity test (ansible-playbook ${ANSIBLE_HOME}/ping.yaml)"
   cd "${ANSIBLE_HOME}"
 
   [[ -f "${ANSIBLE_HOME}/ansible.cfg" ]] || abort "Deployed ansible.cfg not found: ${ANSIBLE_HOME}/ansible.cfg"
   [[ -f "${ANSIBLE_HOME}/hosts.ini" ]] || abort "Deployed hosts.ini not found: ${ANSIBLE_HOME}/hosts.ini"
+  [[ -f "${ANSIBLE_HOME}/ping.yaml" ]] || abort "Deployed ping.yaml not found: ${ANSIBLE_HOME}/ping.yaml"
 
-  "${VENV_PATH}/bin/ansible-playbook" "${ANSIBLE_HOME}/main.yaml" \
+  "${VENV_PATH}/bin/ansible-playbook" "${ANSIBLE_HOME}/ping.yaml" \
     2>&1 || warn "Some hosts failed ping — check hosts.ini and SSH keys."
 }
 
@@ -159,4 +170,5 @@ run_ping_test
 
 log "Setup complete. To run playbook manually:"
 log "  source ${VENV_PATH}/bin/activate"
-log "  ansible-playbook ${ANSIBLE_HOME}/main.yaml"
+  log "  ansible-playbook ${ANSIBLE_HOME}/setup.yaml"
+log "  ansible-playbook ${ANSIBLE_HOME}/ping.yaml"

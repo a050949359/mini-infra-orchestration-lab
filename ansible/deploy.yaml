@@ -1,0 +1,100 @@
+---
+- name: Deploy node1 API service
+  hosts: node1
+  become: true
+  gather_facts: true
+  vars:
+    api_app_dir: /opt/node1_api
+    api_venv_path: /opt/mini-orch-venv
+    api_service_name: node1-api
+
+  tasks:
+    - name: Ensure API app directory exists
+      ansible.builtin.file:
+        path: "{{ api_app_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Upload Flask app
+      ansible.builtin.copy:
+        src: ../node1_api/app.py
+        dest: "{{ api_app_dir }}/app.py"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Upload requirements
+      ansible.builtin.copy:
+        src: ../node1_api/requirements.txt
+        dest: "{{ api_app_dir }}/requirements.txt"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Ensure API venv exists
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ api_venv_path }}"
+        creates: "{{ api_venv_path }}/bin/activate"
+
+    - name: Install API dependencies into venv
+      ansible.builtin.pip:
+        requirements: "{{ api_app_dir }}/requirements.txt"
+        virtualenv: "{{ api_venv_path }}"
+
+    - name: Create API environment file
+      ansible.builtin.copy:
+        dest: /etc/node1_api.env
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          JOB_DB_PATH=/var/lib/node1_api/jobs.db
+          REDIS_URL=redis://127.0.0.1:6379/0
+          QUEUE_STREAM_KEY=jobs:stream
+
+    - name: Ensure API data directory exists
+      ansible.builtin.file:
+        path: /var/lib/node1_api
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create systemd service for node1 API
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ api_service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Node1 Flask API Service
+          After=network.target redis-server.service
+
+          [Service]
+          Type=simple
+          EnvironmentFile=/etc/node1_api.env
+          WorkingDirectory={{ api_app_dir }}
+          ExecStart={{ api_venv_path }}/bin/python {{ api_app_dir }}/app.py
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart node1 API
+
+    - name: Ensure node1 API service enabled and started
+      ansible.builtin.systemd:
+        name: "{{ api_service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Restart node1 API
+      ansible.builtin.systemd:
+        name: "{{ api_service_name }}"
+        state: restarted
+        daemon_reload: true

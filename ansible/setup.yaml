@@ -5,9 +5,6 @@
   gather_facts: true
 
   tasks:
-    - name: Verify connectivity
-      ansible.builtin.ping:
-
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true
