@@ -4,7 +4,6 @@
   become: true
   gather_facts: true
   vars:
-    redis_password: "IntraNet-Redis-2026!ChangeMe"
     redis_bind: "127.0.0.1 {{ ansible_facts['default_ipv4']['address'] }}"
 
   tasks:

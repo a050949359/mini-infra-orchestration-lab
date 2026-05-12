@@ -11,6 +11,7 @@ ANSIBLE_HOME="/etc/ansible"
 HOSTS_INI_SRC="${SCRIPT_DIR}/hosts.ini"
 SETUP_SRC="${SCRIPT_DIR}/setup.yaml"
 PING_SRC="${SCRIPT_DIR}/ping.yaml"
+GROUP_VARS_DIR_SRC="${SCRIPT_DIR}/group_vars"
 
 log()   { printf '\e[32m[setup]\e[0m %s\n' "$1"; }
 warn()  { printf '\e[33m[warn]\e[0m  %s\n' "$1"; }
@@ -138,6 +139,16 @@ setup_ansible_dir() {
       || log "Skip (exists): ${ANSIBLE_HOME}/hosts.ini"
   else
     warn "hosts.ini not found in ${SCRIPT_DIR}, skipping."
+  fi
+
+  # group_vars/all.yml
+  if [[ -d "${GROUP_VARS_DIR_SRC}" ]]; then
+    run_sudo mkdir -p "${ANSIBLE_HOME}/group_vars"
+    run_sudo cp -rn "${GROUP_VARS_DIR_SRC}/." "${ANSIBLE_HOME}/group_vars/" 2>/dev/null \
+      && log "Synced: ${ANSIBLE_HOME}/group_vars" \
+      || log "Skip (exists): ${ANSIBLE_HOME}/group_vars"
+  else
+    warn "group_vars not found in ${SCRIPT_DIR}, skipping."
   fi
 
   # ansible.cfg

@@ -10,7 +10,6 @@
     api_data_dir: /var/lib/node1_api
     sqlite_db_path: /var/lib/node1_api/jobs.db
     sqlite_backup_dir: /var/backups/node1_api
-    redis_password: "IntraNet-Redis-2026!ChangeMe"
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
 
   tasks:
