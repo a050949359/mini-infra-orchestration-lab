@@ -19,6 +19,7 @@ chmod +x ./ansible/setup_ansible_server.sh
    - `/etc/ansible/setup.yaml`
    - `/etc/ansible/ping.yaml`
    - `/etc/ansible/hosts.ini`
+   - `/etc/ansible/group_vars/all.yml`
    - `/etc/ansible/ansible.cfg`
 7. 對所有主機執行連線測試（`/etc/ansible/ping.yaml`）
 

@@ -144,9 +144,9 @@ setup_ansible_dir() {
   # group_vars/all.yml
   if [[ -d "${GROUP_VARS_DIR_SRC}" ]]; then
     run_sudo mkdir -p "${ANSIBLE_HOME}/group_vars"
-    run_sudo cp -rn "${GROUP_VARS_DIR_SRC}/." "${ANSIBLE_HOME}/group_vars/" 2>/dev/null \
+    run_sudo cp -r "${GROUP_VARS_DIR_SRC}/." "${ANSIBLE_HOME}/group_vars/" 2>/dev/null \
       && log "Synced: ${ANSIBLE_HOME}/group_vars" \
-      || log "Skip (exists): ${ANSIBLE_HOME}/group_vars"
+      || warn "Failed to sync: ${ANSIBLE_HOME}/group_vars"
   else
     warn "group_vars not found in ${SCRIPT_DIR}, skipping."
   fi

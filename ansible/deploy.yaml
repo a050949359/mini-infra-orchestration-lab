@@ -4,12 +4,6 @@
   become: true
   gather_facts: true
   vars:
-    api_app_dir: /opt/node1_api
-    api_venv_path: /opt/mini-orch-venv
-    api_service_name: node1-api
-    api_data_dir: /var/lib/node1_api
-    sqlite_db_path: /var/lib/node1_api/jobs.db
-    sqlite_backup_dir: /var/backups/node1_api
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
 
   tasks:
@@ -85,14 +79,14 @@
 
     - name: Create API environment file
       ansible.builtin.copy:
-        dest: /etc/node1_api.env
+        dest: "{{ api_env_file }}"
         owner: root
         group: root
         mode: "0644"
         content: |
-          JOB_DB_PATH=/var/lib/node1_api/jobs.db
+          JOB_DB_PATH={{ sqlite_db_path }}
           REDIS_URL={{ redis_url }}
-          QUEUE_STREAM_KEY=jobs:stream
+          QUEUE_STREAM_KEY={{ queue_stream_key }}
 
     - name: Remove API data directory for clean redeploy
       ansible.builtin.file:
@@ -120,7 +114,7 @@
 
           [Service]
           Type=simple
-          EnvironmentFile=/etc/node1_api.env
+          EnvironmentFile={{ api_env_file }}
           WorkingDirectory={{ api_app_dir }}
           ExecStart={{ api_venv_path }}/bin/python {{ api_app_dir }}/app.py
           Restart=always
@@ -149,10 +143,6 @@
   become: true
   gather_facts: true
   vars:
-    worker_binary_src: ../node2_worker/bin/node2-worker
-    worker_binary_dest: /usr/local/bin/node2-worker
-    worker_service_name: node2-worker
-    redis_password: "IntraNet-Redis-2026!ChangeMe"
     node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | default(hostvars['node1']['ansible_host'] | default('127.0.0.1')) }}"
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
     node1_api_url: "http://{{ node1_redis_host }}:5000"
@@ -182,18 +172,18 @@
 
     - name: Create node2 worker environment file
       ansible.builtin.copy:
-        dest: /etc/node2_worker.env
+        dest: "{{ worker_env_file }}"
         owner: root
         group: root
         mode: "0644"
         content: |
           REDIS_URL={{ redis_url }}
           NODE1_API_URL={{ node1_api_url }}
-          QUEUE_STREAM_KEY=jobs:stream
-          QUEUE_GROUP=node2-workers
+          QUEUE_STREAM_KEY={{ queue_stream_key }}
+          QUEUE_GROUP={{ worker_queue_group }}
           QUEUE_CONSUMER={{ inventory_hostname }}
-          QUEUE_BATCH_SIZE=10
-          QUEUE_BLOCK_MS=5000
+          QUEUE_BATCH_SIZE={{ worker_queue_batch_size }}
+          QUEUE_BLOCK_MS={{ worker_queue_block_ms }}
 
     - name: Create systemd service for node2 worker
       ansible.builtin.copy:
@@ -208,7 +198,7 @@
 
           [Service]
           Type=simple
-          EnvironmentFile=/etc/node2_worker.env
+          EnvironmentFile={{ worker_env_file }}
           ExecStart={{ worker_binary_dest }}
           Restart=always
           RestartSec=3

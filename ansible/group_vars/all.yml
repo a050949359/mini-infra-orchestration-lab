@@ -1,2 +1,19 @@
 ---
 redis_password: "IntraNet-Redis-2026!ChangeMe"
+api_app_dir: /opt/mini-orch
+api_venv_path: /opt/mini-orch-venv
+api_service_name: mini-orch-api
+api_env_file: /etc/mini-orch-api.env
+api_data_dir: /var/lib/mini-orch
+sqlite_db_path: /var/lib/mini-orch/jobs.db
+sqlite_backup_dir: /var/backups/mini-orch
+
+queue_stream_key: jobs:stream
+
+worker_binary_src: ../node2_worker/bin/mini-orch-worker
+worker_binary_dest: /usr/bin/mini-orch-worker
+worker_service_name: mini-orch-worker
+worker_env_file: /etc/mini-orch-worker.env
+worker_queue_group: mini-orch-workers
+worker_queue_batch_size: 10
+worker_queue_block_ms: 5000

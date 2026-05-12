@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${SCRIPT_DIR}/bin"
-OUT_FILE="${OUT_DIR}/node2-worker"
+OUT_FILE="${OUT_DIR}/mini-orch-worker"
 
 mkdir -p "${OUT_DIR}"
 cd "${SCRIPT_DIR}"

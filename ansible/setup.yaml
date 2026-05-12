@@ -67,10 +67,7 @@
   become: true
   gather_facts: true
   vars:
-    app_venv_name: mini-orch-venv
-    app_venv_path: "/opt/{{ app_venv_name }}"
-    api_app_dir: /opt/node1_api
-    api_service_name: node1-api
+    redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
 
   tasks:
     - name: Install control node packages
@@ -83,19 +80,19 @@
 
     - name: Create application venv
       ansible.builtin.command:
-        cmd: "python3 -m venv {{ app_venv_path }}"
-        creates: "{{ app_venv_path }}/bin/activate"
+        cmd: "python3 -m venv {{ api_venv_path }}"
+        creates: "{{ api_venv_path }}/bin/activate"
 
     - name: Install Flask and Gunicorn in application venv
       ansible.builtin.pip:
         name:
           - flask
           - gunicorn
-        virtualenv: "{{ app_venv_path }}"
+        virtualenv: "{{ api_venv_path }}"
 
     - name: Ensure API data directory exists
       ansible.builtin.file:
-        path: /var/lib/node1_api
+        path: "{{ api_data_dir }}"
         state: directory
         owner: root
         group: root
@@ -103,14 +100,14 @@
 
     - name: Ensure node1 API environment file exists
       ansible.builtin.copy:
-        dest: /etc/node1_api.env
+        dest: "{{ api_env_file }}"
         owner: root
         group: root
         mode: "0644"
         content: |
-          JOB_DB_PATH=/var/lib/node1_api/jobs.db
-          REDIS_URL=redis://:{{ redis_password }}@127.0.0.1:6379/0
-          QUEUE_STREAM_KEY=jobs:stream
+          JOB_DB_PATH={{ sqlite_db_path }}
+          REDIS_URL={{ redis_url }}
+          QUEUE_STREAM_KEY={{ queue_stream_key }}
 
     - name: Create systemd service for node1 API Gunicorn
       ansible.builtin.copy:
@@ -125,9 +122,9 @@
 
           [Service]
           Type=simple
-          EnvironmentFile=/etc/node1_api.env
+          EnvironmentFile={{ api_env_file }}
           WorkingDirectory={{ api_app_dir }}
-          ExecStart={{ app_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
+          ExecStart={{ api_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
           Restart=always
           RestartSec=3
 
@@ -154,12 +151,12 @@
 
     - name: Skip API service start when app not deployed yet
       ansible.builtin.debug:
-        msg: "Skip starting node1-api: {{ api_app_dir }}/app.py not found. Run deploy.yaml after setup."
+        msg: "Skip starting {{ api_service_name }}: {{ api_app_dir }}/app.py not found. Run deploy.yaml after setup."
       when: not node1_api_app.stat.exists
 
     - name: Show control node setup summary
       ansible.builtin.debug:
-        msg: "node1 ready with Flask/Gunicorn, Redis, SQLite, SNMP, and venv at {{ app_venv_path }}"
+        msg: "node1 ready with Flask/Gunicorn, Redis, SQLite, SNMP, and venv at {{ api_venv_path }}"
 
 - name: Configure worker node
   hosts: node2
