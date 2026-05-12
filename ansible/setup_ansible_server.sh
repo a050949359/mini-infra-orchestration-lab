@@ -93,7 +93,21 @@ install_ansible() {
   log "Installed: $("${VENV_PATH}/bin/ansible-playbook" --version | head -1)"
 }
 
-# ── 4. 建立 /etc/ansible 目錄並放置檔案 ───────────────
+# ── 4. 安裝 Go（供 node2 worker 編譯用）────────────────
+install_go() {
+  if command -v go >/dev/null 2>&1; then
+    log "go already installed: $(go version)"
+    return
+  fi
+
+  require_sudo
+  log "Install go toolchain"
+  run_sudo apt-get update
+  run_sudo apt-get install -y golang-go
+  log "Installed: $(go version)"
+}
+
+# ── 5. 建立 /etc/ansible 目錄並放置檔案 ───────────────
 setup_ansible_dir() {
   require_sudo
   run_sudo mkdir -p "${ANSIBLE_HOME}"
@@ -146,7 +160,7 @@ EOF
   fi
 }
 
-# ── 5. 連線測試（ansible playbook）────────────────────
+# ── 6. 連線測試（ansible playbook）────────────────────
 run_ping_test() {
   log "Run connectivity test (ansible-playbook ${ANSIBLE_HOME}/ping.yaml)"
   cd "${ANSIBLE_HOME}"
@@ -165,6 +179,7 @@ check_hosts_ini
 check_python
 setup_venv
 install_ansible
+install_go
 setup_ansible_dir
 run_ping_test
 

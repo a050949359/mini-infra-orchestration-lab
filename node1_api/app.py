@@ -178,11 +178,15 @@ def create_app() -> Flask:
         if row is None:
             return jsonify({"error": "job not found", "job_id": job_id}), 404
 
+        job_body = json.loads(row["payload"]) if row["payload"] else {}
+
         return jsonify(
             {
                 "job_id": row["id"],
                 "status": row["status"],
-                "payload": json.loads(row["payload"]) if row["payload"] else None,
+                "type": job_body.get("type"),
+                "priority": job_body.get("priority"),
+                "payload": job_body.get("payload"),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }

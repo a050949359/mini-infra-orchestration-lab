@@ -156,6 +156,7 @@
     redis_password: "IntraNet-Redis-2026!ChangeMe"
     node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | default(hostvars['node1']['ansible_host'] | default('127.0.0.1')) }}"
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
+    node1_api_url: "http://{{ node1_redis_host }}:5000"
 
   tasks:
     - name: Check worker binary exists on control node
@@ -188,6 +189,7 @@
         mode: "0644"
         content: |
           REDIS_URL={{ redis_url }}
+          NODE1_API_URL={{ node1_api_url }}
           QUEUE_STREAM_KEY=jobs:stream
           QUEUE_GROUP=node2-workers
           QUEUE_CONSUMER={{ inventory_hostname }}
