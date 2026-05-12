@@ -15,6 +15,28 @@ log()   { printf '\e[32m[setup]\e[0m %s\n' "$1"; }
 warn()  { printf '\e[33m[warn]\e[0m  %s\n' "$1"; }
 abort() { printf '\e[31m[error]\e[0m %s\n' "$1"; exit 1; }
 
+SSH_KEY="$HOME/.ssh/oracle_id_rsa"
+PLACEHOLDER_IPS=("192.168.56.11" "192.168.56.12")
+
+# ── 0a. 確認 SSH 私鑰存在 ─────────────────────────────
+check_ssh_key() {
+  [[ -f "${SSH_KEY}" ]] || abort "SSH key not found: ${SSH_KEY}\n       請先把 Oracle Cloud 私鑰放到該路徑。"
+  chmod 600 "${SSH_KEY}"
+  log "SSH key: ${SSH_KEY}"
+}
+
+# ── 0b. 確認 hosts.ini 已填入真實 IP ────────────────
+check_hosts_ini() {
+  [[ -f "${HOSTS_INI_SRC}" ]] || abort "hosts.ini not found: ${HOSTS_INI_SRC}"
+
+  for ip in "${PLACEHOLDER_IPS[@]}"; do
+    if grep -q "ansible_host=${ip}" "${HOSTS_INI_SRC}"; then
+      abort "hosts.ini 仍含預設佔位 IP ${ip}，請先填入真實 ansible_host。"
+    fi
+  done
+  log "hosts.ini ansible_host 已設定"
+}
+
 # ── 1. 確認 Ubuntu 24.04 ──────────────────────────────
 check_os() {
   [[ -f /etc/os-release ]] || abort "Cannot detect OS."
@@ -123,6 +145,8 @@ run_ping_test() {
 }
 
 # ── 主流程 ───────────────────────────────────────────
+check_ssh_key
+check_hosts_ini
 check_os
 check_python
 setup_venv
