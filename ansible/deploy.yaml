@@ -106,3 +106,85 @@
         name: "{{ api_service_name }}"
         state: restarted
         daemon_reload: true
+
+- name: Deploy node2 stream worker binary
+  hosts: node2
+  become: true
+  gather_facts: true
+  vars:
+    worker_binary_src: ../node2_worker/bin/node2-worker
+    worker_binary_dest: /usr/local/bin/node2-worker
+    worker_service_name: node2-worker
+
+  tasks:
+    - name: Check worker binary exists on control node
+      delegate_to: localhost
+      become: false
+      ansible.builtin.stat:
+        path: "{{ worker_binary_src }}"
+      register: worker_binary_stat
+
+    - name: Fail if worker binary is missing
+      delegate_to: localhost
+      become: false
+      ansible.builtin.fail:
+        msg: "Missing worker binary: {{ worker_binary_src }}. Build it first: ./node2_worker/build.sh"
+      when: not worker_binary_stat.stat.exists
+
+    - name: Upload node2 worker binary
+      ansible.builtin.copy:
+        src: "{{ worker_binary_src }}"
+        dest: "{{ worker_binary_dest }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create node2 worker environment file
+      ansible.builtin.copy:
+        dest: /etc/node2_worker.env
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          REDIS_URL=redis://127.0.0.1:6379/0
+          QUEUE_STREAM_KEY=jobs:stream
+          QUEUE_GROUP=node2-workers
+          QUEUE_CONSUMER={{ inventory_hostname }}
+          QUEUE_BATCH_SIZE=10
+          QUEUE_BLOCK_MS=5000
+
+    - name: Create systemd service for node2 worker
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ worker_service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Node2 Redis Stream Worker
+          After=network.target redis-server.service
+
+          [Service]
+          Type=simple
+          EnvironmentFile=/etc/node2_worker.env
+          ExecStart={{ worker_binary_dest }}
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart node2 worker
+
+    - name: Ensure node2 worker service enabled and started
+      ansible.builtin.systemd:
+        name: "{{ worker_service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Restart node2 worker
+      ansible.builtin.systemd:
+        name: "{{ worker_service_name }}"
+        state: restarted
+        daemon_reload: true
