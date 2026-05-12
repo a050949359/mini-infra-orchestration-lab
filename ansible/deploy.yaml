@@ -33,6 +33,14 @@
         group: root
         mode: "0644"
 
+    - name: Upload API test scripts
+      ansible.builtin.copy:
+        src: ../node1_api/tests/
+        dest: "{{ api_app_dir }}/tests/"
+        owner: root
+        group: root
+        mode: preserve
+
     - name: Ensure API venv exists
       ansible.builtin.command:
         cmd: "python3 -m venv {{ api_venv_path }}"
