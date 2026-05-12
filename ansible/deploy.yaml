@@ -77,6 +77,11 @@
         requirements: "{{ api_app_dir }}/requirements.txt"
         virtualenv: "{{ api_venv_path }}"
 
+    - name: Ensure Gunicorn is installed in API venv
+      ansible.builtin.pip:
+        name: gunicorn
+        virtualenv: "{{ api_venv_path }}"
+
     - name: Create API environment file
       ansible.builtin.copy:
         dest: "{{ api_env_file }}"
@@ -116,13 +121,45 @@
           Type=simple
           EnvironmentFile={{ api_env_file }}
           WorkingDirectory={{ api_app_dir }}
-          ExecStart={{ api_venv_path }}/bin/python {{ api_app_dir }}/app.py
+          ExecStart={{ api_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
           Restart=always
           RestartSec=3
 
           [Install]
           WantedBy=multi-user.target
       notify: Restart node1 API
+
+    - name: Stop and disable legacy node1-api service if present
+      ansible.builtin.systemd:
+        name: node1-api
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Stop and disable legacy node1-api.service unit if present
+      ansible.builtin.systemd:
+        name: node1-api.service
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Stop and disable current API service before restart
+      ansible.builtin.systemd:
+        name: "{{ api_service_name }}"
+        state: stopped
+      failed_when: false
+
+    - name: Kill any process listening on port 5000
+      ansible.builtin.shell: |
+        set -o pipefail
+        pids=$(ss -ltnp '( sport = :5000 )' | awk -F 'pid=' 'NR>1 && NF>1 {split($2,a,",|"); print a[1]}' | sort -u)
+        if [[ -n "$pids" ]]; then
+          kill -9 $pids
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
 
     - name: Ensure node1 API service enabled and started
       ansible.builtin.systemd:
@@ -143,7 +180,7 @@
   become: true
   gather_facts: false
   vars:
-    node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | default(hostvars['node1']['ansible_host'] | default('127.0.0.1')) }}"
+    node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | mandatory('hosts.ini missing node1 redis_private_ip') }}"
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
     node1_api_url: "http://{{ node1_redis_host }}:5000"
 
