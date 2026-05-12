@@ -14,6 +14,7 @@ worker_binary_src: ../node2_worker/bin/mini-orch-worker
 worker_binary_dest: /usr/bin/mini-orch-worker
 worker_service_name: mini-orch-worker
 worker_env_file: /etc/mini-orch-worker.env
+worker_log_file: /var/log/mini-orch/worker.log
 worker_queue_group: mini-orch-workers
 worker_queue_batch_size: 10
 worker_queue_block_ms: 5000

@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+# Go
+node2_worker/bin/
+*.test
+*.out
+coverage.out
+
 # Distribution / packaging
 .Python
 build/

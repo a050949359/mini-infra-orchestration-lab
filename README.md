@@ -1,7 +1,11 @@
 # mini-infra-orchestration-lab
 簡單使用 ansible 部署環境與程式至兩台免費 oracle cloud 主機
+node1 flask api 使用 redis stream enqueue 
+node2 goroutine 消化 queu 工作 
 
-## Ubuntu 24.04 控制端初始化
+## 控制與遠端安裝
+
+### Ubuntu 24.04 控制端初始化
 
 ```bash
 chmod +x ./ansible/setup_ansible_server.sh
@@ -23,9 +27,20 @@ chmod +x ./ansible/setup_ansible_server.sh
    - `/etc/ansible/ansible.cfg`
 7. 對所有主機執行連線測試（`/etc/ansible/ping.yaml`）
 
+### 遠端環境安裝
+
 ```bash
 source ~/ansible-env/bin/activate
 ansible-playbook /etc/ansible/setup.yaml
+```
+
+### node2 golang 編譯
+```bash
+./node2_worker/build.sh
+```
+
+### 遠端環境部署
+```bash
 ansible-playbook /etc/ansible/deploy.yaml
 ```
 

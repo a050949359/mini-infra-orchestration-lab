@@ -8,10 +8,10 @@ OUT_FILE="${OUT_DIR}/mini-orch-worker"
 mkdir -p "${OUT_DIR}"
 cd "${SCRIPT_DIR}"
 
-echo "[build] go mod tidy"
-go mod tidy
+echo "[build] verify dependencies (read-only module mode)"
+go mod download
 
 echo "[build] build linux/amd64 worker binary"
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "${OUT_FILE}" ./cmd/worker
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -o "${OUT_FILE}" ./cmd/worker
 
 echo "[build] output: ${OUT_FILE}"

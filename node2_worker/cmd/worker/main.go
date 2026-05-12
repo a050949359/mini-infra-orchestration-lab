@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"strconv"
 	"syscall"
@@ -74,7 +75,38 @@ func updateJobStatus(apiURL, jobID, status string) error {
 	return nil
 }
 
+func setupLogOutput() func() {
+	logPath := getenv("WORKER_LOG_FILE", "/var/log/mini-orch/worker.log")
+	if logPath == "" {
+		return func() {}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		log.Printf("unable to create log directory for %s: %v", logPath, err)
+		return func() {}
+	}
+
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("unable to open log file %s: %v", logPath, err)
+		return func() {}
+	}
+
+	log.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	log.Printf("file logging enabled: %s", logPath)
+
+	return func() {
+		if err := logFile.Close(); err != nil {
+			log.Printf("close log file failed: %v", err)
+		}
+	}
+}
+
 func main() {
+	log.SetOutput(os.Stdout)
+	closeLog := setupLogOutput()
+	defer closeLog()
+
 	redisURL := getenv("REDIS_URL", "redis://:IntraNet-Redis-2026!ChangeMe@10.0.0.143:6379/0")
 	apiURL := getenv("NODE1_API_URL", "http://10.0.0.143:5000")
 	streamKey := getenv("QUEUE_STREAM_KEY", "jobs:stream")

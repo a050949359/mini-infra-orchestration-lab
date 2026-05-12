@@ -136,19 +136,21 @@ def create_app() -> Flask:
                 app.config["QUEUE_STREAM_KEY"],
                 stream_message,
             )
-        except redis.RedisError:
+        except redis.RedisError as exc:
             failed_at = utc_now()
             db.execute(
                 "UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?",
                 ("publish_failed", failed_at, job_id),
             )
             db.commit()
+            app.logger.exception("failed to append job to redis stream")
             return (
                 jsonify(
                     {
                         "job_id": job_id,
                         "status": "publish_failed",
                         "error": "failed to append job to redis stream",
+                        "error_detail": str(exc),
                     }
                 ),
                 503,

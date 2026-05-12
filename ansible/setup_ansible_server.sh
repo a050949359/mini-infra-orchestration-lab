@@ -158,6 +158,12 @@ inventory          = /etc/ansible/hosts.ini
 host_key_checking  = False
 retry_files_enabled = False
 interpreter_python = auto_silent
+forks              = 20
+gathering          = smart
+
+[ssh_connection]
+pipelining         = True
+ssh_args           = -o ControlMaster=auto -o ControlPersist=60s
 
 [privilege_escalation]
 become          = True

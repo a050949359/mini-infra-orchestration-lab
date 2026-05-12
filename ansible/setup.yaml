@@ -65,7 +65,7 @@
 - name: Configure control and API node
   hosts: node1
   become: true
-  gather_facts: true
+  gather_facts: false
   vars:
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
 
@@ -161,7 +161,7 @@
 - name: Configure worker node
   hosts: node2
   become: true
-  gather_facts: true
+  gather_facts: false
 
   tasks:
     - name: Show worker node setup summary
