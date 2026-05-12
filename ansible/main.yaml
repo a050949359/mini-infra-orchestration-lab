@@ -1,5 +1,5 @@
 ---
-- name: Mini infra orchestration
+- name: Configure common base packages
   hosts: all
   become: true
   gather_facts: true
@@ -8,6 +8,68 @@
     - name: Verify connectivity
       ansible.builtin.ping:
 
-    - name: Show basic host info
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install common packages
+      ansible.builtin.apt:
+        name:
+          - redis-server
+          - snmp
+          - snmpd
+        state: present
+
+    - name: Enable and start Redis
+      ansible.builtin.service:
+        name: redis-server
+        enabled: true
+        state: started
+
+    - name: Enable and start SNMP daemon
+      ansible.builtin.service:
+        name: snmpd
+        enabled: true
+        state: started
+
+- name: Configure control and API node
+  hosts: node1
+  become: true
+  gather_facts: true
+  vars:
+    app_venv_name: mini-orch-venv
+    app_venv_path: "/opt/{{ app_venv_name }}"
+
+  tasks:
+    - name: Install control node packages
+      ansible.builtin.apt:
+        name:
+          - python3-pip
+          - python3-venv
+          - sqlite3
+        state: present
+
+    - name: Create application venv
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ app_venv_path }}"
+        creates: "{{ app_venv_path }}/bin/activate"
+
+    - name: Install Flask in application venv
+      ansible.builtin.pip:
+        name: flask
+        virtualenv: "{{ app_venv_path }}"
+
+    - name: Show control node setup summary
       ansible.builtin.debug:
-        msg: "Host {{ inventory_hostname }} is reachable."
+        msg: "node1 ready with Flask, Redis, SQLite, SNMP, and venv at {{ app_venv_path }}"
+
+- name: Configure worker node
+  hosts: node2
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Show worker node setup summary
+      ansible.builtin.debug:
+        msg: "node2 ready with Redis and SNMP"
