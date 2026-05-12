@@ -70,6 +70,8 @@
   vars:
     app_venv_name: mini-orch-venv
     app_venv_path: "/opt/{{ app_venv_name }}"
+    api_app_dir: /opt/node1_api
+    api_service_name: node1-api
 
   tasks:
     - name: Install control node packages
@@ -85,14 +87,80 @@
         cmd: "python3 -m venv {{ app_venv_path }}"
         creates: "{{ app_venv_path }}/bin/activate"
 
-    - name: Install Flask in application venv
+    - name: Install Flask and Gunicorn in application venv
       ansible.builtin.pip:
-        name: flask
+        name:
+          - flask
+          - gunicorn
         virtualenv: "{{ app_venv_path }}"
+
+    - name: Ensure API data directory exists
+      ansible.builtin.file:
+        path: /var/lib/node1_api
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Ensure node1 API environment file exists
+      ansible.builtin.copy:
+        dest: /etc/node1_api.env
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          JOB_DB_PATH=/var/lib/node1_api/jobs.db
+          REDIS_URL=redis://:{{ redis_password }}@127.0.0.1:6379/0
+          QUEUE_STREAM_KEY=jobs:stream
+
+    - name: Create systemd service for node1 API Gunicorn
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ api_service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Node1 Flask API Service (Gunicorn)
+          After=network.target redis-server.service
+
+          [Service]
+          Type=simple
+          EnvironmentFile=/etc/node1_api.env
+          WorkingDirectory={{ api_app_dir }}
+          ExecStart={{ app_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      register: node1_api_service_unit
+
+    - name: Reload systemd daemon when node1 API unit changes
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: node1_api_service_unit.changed
+
+    - name: Check if node1 API app exists
+      ansible.builtin.stat:
+        path: "{{ api_app_dir }}/app.py"
+      register: node1_api_app
+
+    - name: Enable and start node1 API Gunicorn service
+      ansible.builtin.systemd:
+        name: "{{ api_service_name }}"
+        enabled: true
+        state: started
+      when: node1_api_app.stat.exists
+
+    - name: Skip API service start when app not deployed yet
+      ansible.builtin.debug:
+        msg: "Skip starting node1-api: {{ api_app_dir }}/app.py not found. Run deploy.yaml after setup."
+      when: not node1_api_app.stat.exists
 
     - name: Show control node setup summary
       ansible.builtin.debug:
-        msg: "node1 ready with Flask, Redis, SQLite, SNMP, and venv at {{ app_venv_path }}"
+        msg: "node1 ready with Flask/Gunicorn, Redis, SQLite, SNMP, and venv at {{ app_venv_path }}"
 
 - name: Configure worker node
   hosts: node2

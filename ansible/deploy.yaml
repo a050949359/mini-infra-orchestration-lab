@@ -30,7 +30,7 @@
     - name: Backup SQLite database before redeploy
       ansible.builtin.copy:
         src: "{{ sqlite_db_path }}"
-        dest: "{{ sqlite_backup_dir }}/jobs-{{ ansible_date_time.iso8601_basic_short }}.db"
+        dest: "{{ sqlite_backup_dir }}/jobs-{{ ansible_facts['date_time']['iso8601_basic_short'] }}.db"
         remote_src: true
         owner: root
         group: root
