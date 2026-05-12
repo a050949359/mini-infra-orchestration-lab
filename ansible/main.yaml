@@ -1,0 +1,13 @@
+---
+- name: Mini infra orchestration
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Verify connectivity
+      ansible.builtin.ping:
+
+    - name: Show basic host info
+      ansible.builtin.debug:
+        msg: "Host {{ inventory_hostname }} is reachable."
