@@ -117,23 +117,22 @@ setup_ansible_dir() {
   fi
 
   # ansible.cfg
-  if [[ ! -f "${ANSIBLE_HOME}/ansible.cfg" ]]; then
-    run_sudo tee "${ANSIBLE_HOME}/ansible.cfg" >/dev/null <<'EOF'
+  run_sudo tee "${ANSIBLE_HOME}/ansible.cfg" >/dev/null <<'EOF'
 [defaults]
 inventory          = /etc/ansible/hosts.ini
 host_key_checking  = False
 retry_files_enabled = False
 interpreter_python = auto_silent
-stdout_callback    = yaml
 
 [privilege_escalation]
 become          = True
 become_method   = sudo
 become_ask_pass = False
 EOF
-    log "Created: ${ANSIBLE_HOME}/ansible.cfg"
+  if [[ -f "${ANSIBLE_HOME}/ansible.cfg" ]]; then
+    log "Updated: ${ANSIBLE_HOME}/ansible.cfg"
   else
-    log "Skip (exists): ${ANSIBLE_HOME}/ansible.cfg"
+    log "Created: ${ANSIBLE_HOME}/ansible.cfg"
   fi
 }
 
