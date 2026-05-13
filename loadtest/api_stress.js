@@ -6,6 +6,7 @@ const errorRate = new Rate('error_rate');
 const enqueueDuration = new Trend('enqueue_duration_ms', true);
 
 const BASE_URL = __ENV.API_URL || 'http://localhost:5000';
+const RUN_ID = __ENV.RUN_ID || '';
 
 export const options = {
   stages: [
@@ -37,7 +38,7 @@ const BAD_PAYLOADS = [
 ];
 
 function randomPayload() {
-  return JSON.stringify({
+  const body = {
     type: 'stress_test',
     priority: Math.floor(Math.random() * 5) + 1,
     payload: {
@@ -45,7 +46,9 @@ function randomPayload() {
       action: ACTIONS[Math.floor(Math.random() * ACTIONS.length)],
       data: `vu-${__VU}-iter-${__ITER}`,
     },
-  });
+  };
+  if (RUN_ID) body.run_id = RUN_ID;
+  return JSON.stringify(body);
 }
 
 export default function () {

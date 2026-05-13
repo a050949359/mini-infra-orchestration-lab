@@ -8,6 +8,7 @@ from dataclasses import dataclass
 class AppConfig:
     db_path: str
     redis_url: str
+    snmp_redis_url: str
     queue_stream_key: str
 
 
@@ -33,6 +34,7 @@ def load_app_config() -> AppConfig:
     return AppConfig(
         db_path=os.getenv("JOB_DB_PATH", "/tmp/node1_jobs.db"),
         redis_url=os.getenv("REDIS_URL", ""),
+        snmp_redis_url=os.getenv("SNMP_REDIS_URL", ""),
         queue_stream_key=os.getenv("QUEUE_STREAM_KEY", "jobs:stream"),
     )
 
