@@ -1,64 +1,27 @@
 #!/usr/bin/env python3
 import json
-import os
 import sqlite3
 import uuid
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
 import redis
+from config import load_app_config
 from flask import Flask, g, jsonify, request
+from models import parse_job_request
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def validate_enqueue_body(body: Any) -> tuple[bool, str | None]:
-    if not isinstance(body, dict):
-        return False, "request body must be a JSON object"
-
-    required_top = {"type", "payload", "priority"}
-    if not required_top.issubset(body.keys()):
-        return False, "required fields: type, payload, priority"
-
-    if not isinstance(body.get("type"), str) or not body["type"].strip():
-        return False, "type must be a non-empty string"
-
-    if not isinstance(body.get("priority"), int):
-        return False, "priority must be an integer"
-
-    payload = body.get("payload")
-    if not isinstance(payload, dict):
-        return False, "payload must be an object"
-
-    required_payload = {"user_id", "action", "data"}
-    if not required_payload.issubset(payload.keys()):
-        return False, "payload required fields: user_id, action, data"
-
-    if not isinstance(payload.get("user_id"), int):
-        return False, "payload.user_id must be an integer"
-
-    if not isinstance(payload.get("action"), str) or not payload["action"].strip():
-        return False, "payload.action must be a non-empty string"
-
-    if not isinstance(payload.get("data"), str) or not payload["data"].strip():
-        return False, "payload.data must be a non-empty string"
-
-    return True, None
-
-
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.config["DB_PATH"] = os.getenv("JOB_DB_PATH", "/tmp/node1_jobs.db")
-    redis_url = os.getenv("REDIS_URL")
-    if not redis_url:
-        redis_password = os.getenv("REDIS_PASSWORD")
-        if not redis_password:
-            raise RuntimeError("REDIS_URL or REDIS_PASSWORD must be set")
-        redis_url = f"redis://:{redis_password}@127.0.0.1:6379/0"
-    app.config["REDIS_URL"] = redis_url
-    app.config["QUEUE_STREAM_KEY"] = os.getenv("QUEUE_STREAM_KEY", "jobs:stream")
+    cfg = load_app_config()
+    app.config["DB_PATH"] = cfg.db_path
+    app.config["REDIS_URL"] = cfg.redis_url
+    app.config["QUEUE_STREAM_KEY"] = cfg.queue_stream_key
 
     def get_db() -> sqlite3.Connection:
         if "db" not in g:
@@ -108,9 +71,10 @@ def create_app() -> Flask:
     @app.post("/api/v1/jobs")
     def enqueue_job() -> Any:
         body = request.get_json(silent=True) or {}
-        ok, error = validate_enqueue_body(body)
-        if not ok:
-            return jsonify({"error": error}), 400
+        result = parse_job_request(body)
+        if isinstance(result, str):
+            return jsonify({"error": result}), 400
+        req = result
 
         job_id = str(uuid.uuid4())
         now = utc_now()
@@ -118,16 +82,16 @@ def create_app() -> Flask:
         db = get_db()
         db.execute(
             "INSERT INTO jobs (id, status, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (job_id, "queued", json.dumps(body, ensure_ascii=False), now, now),
+            (job_id, "queued", json.dumps(asdict(req), ensure_ascii=False), now, now),
         )
         db.commit()
 
         stream_message = {
             "job_id": job_id,
             "status": "queued",
-            "type": body["type"],
-            "priority": str(body["priority"]),
-            "payload": json.dumps(body["payload"], ensure_ascii=False),
+            "type": req.type,
+            "priority": str(req.priority),
+            "payload": json.dumps(asdict(req.payload), ensure_ascii=False),
             "created_at": now,
         }
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import logging
-import os
 import signal
 import sqlite3
 import sys
@@ -8,6 +7,7 @@ import time
 from datetime import datetime, timezone
 
 import redis
+from config import load_consumer_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,14 +23,6 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def build_redis_url() -> str:
-    url = os.getenv("REDIS_URL")
-    if url:
-        return url
-    password = os.getenv("REDIS_PASSWORD", "IntraNet-Redis-2026!ChangeMe")
-    return f"redis://:{password}@127.0.0.1:6379/0"
-
-
 def ensure_group(rdb: redis.Redis, stream: str, group: str) -> None:
     try:
         rdb.xgroup_create(stream, group, id="0", mkstream=True)
@@ -40,20 +32,16 @@ def ensure_group(rdb: redis.Redis, stream: str, group: str) -> None:
 
 
 def main() -> None:
-    db_path = os.getenv("JOB_DB_PATH", "/tmp/node1_jobs.db")
-    stream_key = os.getenv("STATUS_STREAM_KEY", "jobs:status")
-    group = os.getenv("STATUS_GROUP", "status-updaters")
-    consumer = os.getenv("STATUS_CONSUMER", "node1-status-consumer")
-    block_ms = int(os.getenv("STATUS_BLOCK_MS", "5000"))
+    cfg = load_consumer_config()
 
-    rdb = redis.Redis.from_url(build_redis_url(), decode_responses=True)
+    rdb = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
     rdb.ping()
     log.info("redis connected")
 
-    ensure_group(rdb, stream_key, group)
-    log.info("consumer started: stream=%s group=%s consumer=%s", stream_key, group, consumer)
+    ensure_group(rdb, cfg.status_stream_key, cfg.group)
+    log.info("consumer started: stream=%s group=%s consumer=%s", cfg.status_stream_key, cfg.group, cfg.consumer)
 
-    db = sqlite3.connect(db_path)
+    db = sqlite3.connect(cfg.db_path)
 
     running = True
 
@@ -68,11 +56,11 @@ def main() -> None:
     while running:
         try:
             results = rdb.xreadgroup(
-                groupname=group,
-                consumername=consumer,
-                streams={stream_key: ">"},
+                groupname=cfg.group,
+                consumername=cfg.consumer,
+                streams={cfg.status_stream_key: ">"},
                 count=10,
-                block=block_ms,
+                block=cfg.block_ms,
             )
         except redis.RedisError as e:
             log.error("xreadgroup error: %s", e)
@@ -89,7 +77,7 @@ def main() -> None:
 
                 if status not in ALLOWED_STATUSES:
                     log.warning("unknown status, skipping msg_id=%s job_id=%s status=%s", msg_id, job_id, status)
-                    rdb.xack(stream_key, group, msg_id)
+                    rdb.xack(cfg.status_stream_key, cfg.group, msg_id)
                     continue
 
                 try:
@@ -105,7 +93,7 @@ def main() -> None:
                 if cur.rowcount == 0:
                     log.warning("job not found msg_id=%s job_id=%s", msg_id, job_id)
 
-                rdb.xack(stream_key, group, msg_id)
+                rdb.xack(cfg.status_stream_key, cfg.group, msg_id)
                 log.info("updated job_id=%s status=%s", job_id, status)
 
     db.close()

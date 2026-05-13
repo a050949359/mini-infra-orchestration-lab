@@ -85,13 +85,20 @@ install_ansible() {
 
   if "${VENV_PATH}/bin/ansible-playbook" --version &>/dev/null; then
     log "ansible-playbook already installed: $("${VENV_PATH}/bin/ansible-playbook" --version | head -1)"
-    return
+  else
+    log "Install ansible-core into venv"
+    "$pip" install --upgrade pip --quiet
+    "$pip" install ansible-core --quiet
+    log "Installed: $("${VENV_PATH}/bin/ansible-playbook" --version | head -1)"
   fi
 
-  log "Install ansible-core into venv"
-  "$pip" install --upgrade pip --quiet
-  "$pip" install ansible-core --quiet
-  log "Installed: $("${VENV_PATH}/bin/ansible-playbook" --version | head -1)"
+  if "${VENV_PATH}/bin/ansible-galaxy" collection list ansible.posix 2>/dev/null | grep -q "ansible.posix"; then
+    log "Collection ansible.posix already installed"
+  else
+    log "Install ansible.posix collection"
+    "${VENV_PATH}/bin/ansible-galaxy" collection install ansible.posix --quiet
+    log "Collection ansible.posix installed"
+  fi
 }
 
 # ── 4. 安裝 Go（供 node2 worker 編譯用）────────────────

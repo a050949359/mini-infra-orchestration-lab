@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import json
 import logging
-import os
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 
 import redis
+from config import load_checker_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,28 +20,16 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def build_redis_url() -> str:
-    url = os.getenv("REDIS_URL")
-    if url:
-        return url
-    password = os.getenv("REDIS_PASSWORD")
-    if not password:
-        raise RuntimeError("REDIS_URL or REDIS_PASSWORD must be set")
-    return f"redis://:{password}@127.0.0.1:6379/0"
-
-
 def main() -> None:
-    db_path = os.getenv("JOB_DB_PATH", "/tmp/node1_jobs.db")
-    stream_key = os.getenv("QUEUE_STREAM_KEY", "jobs:stream")
-    threshold_sec = int(os.getenv("STUCK_JOB_THRESHOLD_SEC", "300"))
+    cfg = load_checker_config()
 
-    rdb = redis.Redis.from_url(build_redis_url(), decode_responses=True)
+    rdb = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
     rdb.ping()
 
-    db = sqlite3.connect(db_path)
+    db = sqlite3.connect(cfg.db_path)
     db.row_factory = sqlite3.Row
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=threshold_sec)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=cfg.stuck_threshold_sec)).isoformat()
 
     rows = db.execute(
         """
@@ -79,7 +67,7 @@ def main() -> None:
         }
 
         try:
-            rdb.xadd(stream_key, stream_message)
+            rdb.xadd(cfg.queue_stream_key, stream_message)
         except redis.RedisError as e:
             log.error("xadd failed job_id=%s: %s", job_id, e)
             continue

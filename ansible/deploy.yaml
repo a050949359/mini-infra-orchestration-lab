@@ -43,29 +43,15 @@
         group: root
         mode: "0755"
 
-    - name: Upload Flask app
-      ansible.builtin.copy:
-        src: ../node1_api/app.py
-        dest: "{{ api_app_dir }}/app.py"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Upload requirements
-      ansible.builtin.copy:
-        src: ../node1_api/requirements.txt
-        dest: "{{ api_app_dir }}/requirements.txt"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Upload API test scripts
-      ansible.builtin.copy:
-        src: ../node1_api/tests/
-        dest: "{{ api_app_dir }}/tests/"
-        owner: root
-        group: root
-        mode: preserve
+    - name: Upload node1 API source
+      ansible.posix.synchronize:
+        src: ../node1_api/
+        dest: "{{ api_app_dir }}/"
+        delete: true
+        rsync_opts:
+          - "--exclude=__pycache__"
+          - "--exclude=*.pyc"
+          - "--chown=root:root"
 
     - name: Ensure API venv exists
       ansible.builtin.command:
@@ -171,14 +157,6 @@
         state: started
         daemon_reload: true
 
-    - name: Upload publish_failed_checker script
-      ansible.builtin.copy:
-        src: ../node1_api/publish_failed_checker.py
-        dest: "{{ api_app_dir }}/publish_failed_checker.py"
-        owner: root
-        group: root
-        mode: "0644"
-
     - name: Schedule publish_failed_checker via cron
       ansible.builtin.cron:
         name: mini-orch publish_failed_checker
@@ -189,14 +167,6 @@
           /bin/bash -c 'set -a; source {{ api_env_file }}; set +a;
           {{ api_venv_path }}/bin/python3 {{ api_app_dir }}/publish_failed_checker.py'
           >> /var/log/mini-orch/publish_failed_checker.log 2>&1
-
-    - name: Upload status consumer script
-      ansible.builtin.copy:
-        src: ../node1_api/status_consumer.py
-        dest: "{{ api_app_dir }}/status_consumer.py"
-        owner: root
-        group: root
-        mode: "0644"
 
     - name: Create systemd service for status consumer
       ansible.builtin.copy:
