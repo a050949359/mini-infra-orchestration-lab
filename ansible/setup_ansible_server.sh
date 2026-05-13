@@ -96,7 +96,7 @@ install_ansible() {
     log "Collection ansible.posix already installed"
   else
     log "Install ansible.posix collection"
-    "${VENV_PATH}/bin/ansible-galaxy" collection install ansible.posix --quiet
+    "${VENV_PATH}/bin/ansible-galaxy" collection install ansible.posix
     log "Collection ansible.posix installed"
   fi
 }
