@@ -4,7 +4,8 @@ import os
 from flask import Flask
 from loadtest import bp
 
-app = Flask(__name__)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+app = Flask(__name__, instance_path=_HERE)
 app.register_blueprint(bp)
 
 if __name__ == "__main__":
