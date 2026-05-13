@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -41,6 +42,17 @@ func processMessage(ctx context.Context, rdbNode1, rdbLocal *redis.Client, msg r
 	if err := publishStatus(ctx, rdbNode1, cfg.statusStreamKey, sm.JobID, "processing"); err != nil {
 		log.Printf("publish processing failed job_id=%s: %v", sm.JobID, err)
 		return // 不 XACK，讓 PEL reclaim
+	}
+
+	if strings.Contains(sm.Payload.Action, "force_fail") {
+		log.Printf("simulated failure job_id=%s action=%s", sm.JobID, sm.Payload.Action)
+		if err := publishStatus(ctx, rdbNode1, cfg.statusStreamKey, sm.JobID, "failed"); err != nil {
+			log.Printf("publish failed status error job_id=%s: %v", sm.JobID, err)
+		}
+		if err := rdbNode1.XAck(ctx, cfg.streamKey, cfg.group, msg.ID).Err(); err != nil {
+			log.Printf("xack failed id=%s: %v", msg.ID, err)
+		}
+		return
 	}
 
 	time.Sleep(cfg.processDelay)
