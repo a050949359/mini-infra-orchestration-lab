@@ -51,9 +51,13 @@ def validate_enqueue_body(body: Any) -> tuple[bool, str | None]:
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["DB_PATH"] = os.getenv("JOB_DB_PATH", "/tmp/node1_jobs.db")
-    redis_password = os.getenv("REDIS_PASSWORD", "IntraNet-Redis-2026!ChangeMe")
-    default_redis_url = f"redis://:{redis_password}@127.0.0.1:6379/0"
-    app.config["REDIS_URL"] = os.getenv("REDIS_URL", default_redis_url)
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        redis_password = os.getenv("REDIS_PASSWORD")
+        if not redis_password:
+            raise RuntimeError("REDIS_URL or REDIS_PASSWORD must be set")
+        redis_url = f"redis://:{redis_password}@127.0.0.1:6379/0"
+    app.config["REDIS_URL"] = redis_url
     app.config["QUEUE_STREAM_KEY"] = os.getenv("QUEUE_STREAM_KEY", "jobs:stream")
 
     def get_db() -> sqlite3.Connection:
@@ -91,10 +95,6 @@ def create_app() -> Flask:
             """
         )
         db.commit()
-
-    @app.before_request
-    def ensure_table() -> None:
-        init_db()
 
     @app.get("/healthz")
     def healthz() -> Any:
@@ -207,17 +207,19 @@ def create_app() -> Flask:
             )
 
         db = get_db()
-        exists = db.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        if not exists:
-            return jsonify({"error": "job not found", "job_id": job_id}), 404
-
-        db.execute(
+        cur = db.execute(
             "UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?",
             (new_status, utc_now(), job_id),
         )
         db.commit()
 
+        if cur.rowcount == 0:
+            return jsonify({"error": "job not found", "job_id": job_id}), 404
+
         return jsonify({"job_id": job_id, "status": new_status})
+
+    with app.app_context():
+        init_db()
 
     return app
 

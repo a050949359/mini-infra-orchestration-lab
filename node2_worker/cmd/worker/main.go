@@ -1,18 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,38 +40,10 @@ func getenvInt(key string, fallback int) int {
 
 func ensureGroup(ctx context.Context, rdb *redis.Client, stream, group string) error {
 	err := rdb.XGroupCreateMkStream(ctx, stream, group, "0").Err()
-	if err == nil || err.Error() == "BUSYGROUP Consumer Group name already exists" {
+	if err == nil || strings.Contains(err.Error(), "BUSYGROUP") {
 		return nil
 	}
 	return err
-}
-
-func updateJobStatus(apiURL, jobID, status string) error {
-	payload, err := json.Marshal(map[string]string{"status": status})
-	if err != nil {
-		return err
-	}
-
-	url := fmt.Sprintf("%s/api/v1/jobs/%s/status", apiURL, jobID)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("node1 api status=%d body=%s", resp.StatusCode, string(body))
-	}
-
-	return nil
 }
 
 func setupLogOutput() func() {
@@ -102,13 +73,64 @@ func setupLogOutput() func() {
 	}
 }
 
+func publishStatus(ctx context.Context, rdb *redis.Client, stream, jobID, status string) error {
+	return rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: stream,
+		Values: map[string]interface{}{
+			"job_id": jobID,
+			"status": status,
+		},
+	}).Err()
+}
+
+type failedEntry struct {
+	JobID  string `json:"job_id"`
+	Status string `json:"status"`
+}
+
+func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, failedKey, statusStream string, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for {
+				val, err := rdbLocal.LPop(ctx, failedKey).Result()
+				if err == redis.Nil {
+					break
+				}
+				if err != nil {
+					log.Printf("retry: lpop failed: %v", err)
+					break
+				}
+				var entry failedEntry
+				if err := json.Unmarshal([]byte(val), &entry); err != nil {
+					log.Printf("retry: unmarshal failed val=%s: %v", val, err)
+					continue
+				}
+				if err := publishStatus(ctx, rdbNode1, statusStream, entry.JobID, entry.Status); err != nil {
+					log.Printf("retry: xadd failed job_id=%s: %v, re-queuing", entry.JobID, err)
+					if pushErr := rdbLocal.RPush(ctx, failedKey, val).Err(); pushErr != nil {
+						log.Printf("retry: re-queue failed job_id=%s: %v", entry.JobID, pushErr)
+					}
+					break
+				}
+				log.Printf("retry: status recovered job_id=%s status=%s", entry.JobID, entry.Status)
+			}
+		}
+	}
+}
+
 func main() {
 	log.SetOutput(os.Stdout)
 	closeLog := setupLogOutput()
 	defer closeLog()
 
 	redisURL := getenv("REDIS_URL", "redis://:IntraNet-Redis-2026!ChangeMe@10.0.0.143:6379/0")
-	apiURL := getenv("NODE1_API_URL", "http://10.0.0.143:5000")
+	node2RedisURL := getenv("NODE2_REDIS_URL", "redis://localhost:6379/0")
+
 	streamKey := getenv("QUEUE_STREAM_KEY", "jobs:stream")
 	group := getenv("QUEUE_GROUP", "node2-workers")
 	consumerBase := getenv("QUEUE_CONSUMER", "node2-worker")
@@ -116,21 +138,36 @@ func main() {
 	batchSize := int64(getenvInt("QUEUE_BATCH_SIZE", 10))
 	blockMS := time.Duration(getenvInt("QUEUE_BLOCK_MS", 5000)) * time.Millisecond
 
+	statusStreamKey := getenv("STATUS_STREAM_KEY", "jobs:status")
+	failedStatusKey := getenv("STATUS_FAILED_KEY", "jobs:status:failed")
+	retryInterval := time.Duration(getenvInt("STATUS_RETRY_INTERVAL_MS", 30000)) * time.Millisecond
+	processDelay := time.Duration(getenvInt("WORKER_PROCESS_SLEEP_MS", 5000)) * time.Millisecond
+
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
 		log.Fatalf("invalid REDIS_URL: %v", err)
 	}
-
-	rdb := redis.NewClient(opt)
+	rdbNode1 := redis.NewClient(opt)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	defer rdb.Close()
+	defer rdbNode1.Close()
 
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Fatalf("redis ping failed: %v", err)
+	if err := rdbNode1.Ping(ctx).Err(); err != nil {
+		log.Fatalf("node1 redis ping failed: %v", err)
 	}
-	if err := ensureGroup(ctx, rdb, streamKey, group); err != nil {
+	if err := ensureGroup(ctx, rdbNode1, streamKey, group); err != nil {
 		log.Fatalf("unable to ensure stream group: %v", err)
+	}
+
+	optLocal, err := redis.ParseURL(node2RedisURL)
+	if err != nil {
+		log.Fatalf("invalid NODE2_REDIS_URL: %v", err)
+	}
+	rdbLocal := redis.NewClient(optLocal)
+	defer rdbLocal.Close()
+
+	if err := rdbLocal.Ping(ctx).Err(); err != nil {
+		log.Fatalf("node2 local redis ping failed: %v", err)
 	}
 
 	log.Printf("worker started: stream=%s group=%s consumer=%s goroutines=%d", streamKey, group, consumerBase, workerCount)
@@ -142,6 +179,8 @@ func main() {
 		log.Printf("received signal: %s", sig)
 		cancel()
 	}()
+
+	go retryFailedStatus(ctx, rdbLocal, rdbNode1, failedStatusKey, statusStreamKey, retryInterval)
 
 	var wg sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
@@ -157,7 +196,7 @@ func main() {
 					return
 				}
 
-				res, err := rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+				res, err := rdbNode1.XReadGroup(ctx, &redis.XReadGroupArgs{
 					Group:    group,
 					Consumer: consumer,
 					Streams:  []string{streamKey, ">"},
@@ -175,27 +214,29 @@ func main() {
 
 				for _, stream := range res {
 					for _, msg := range stream.Messages {
-						jobID := fmt.Sprintf("%v", msg.Values["job_id"])
-						typeVal := fmt.Sprintf("%v", msg.Values["type"])
-						priority := fmt.Sprintf("%v", msg.Values["priority"])
+						jobID, _ := msg.Values["job_id"].(string)
+						typeVal, _ := msg.Values["type"].(string)
+						priority, _ := msg.Values["priority"].(string)
 
 						log.Printf("processing message id=%s job_id=%s type=%s priority=%s consumer=%s", msg.ID, jobID, typeVal, priority, consumer)
 
-						if err := updateJobStatus(apiURL, jobID, "processing"); err != nil {
-							log.Printf("update processing failed job_id=%s: %v", jobID, err)
-							continue
+						if err := publishStatus(ctx, rdbNode1, statusStreamKey, jobID, "processing"); err != nil {
+							log.Printf("publish processing failed job_id=%s: %v", jobID, err)
+							continue // 不 XACK，讓 PEL reclaim
 						}
 
-						time.Sleep(5 * time.Second)
+						time.Sleep(processDelay)
 
-						if err := updateJobStatus(apiURL, jobID, "done"); err != nil {
-							log.Printf("update done failed job_id=%s: %v", jobID, err)
-							continue
+						if err := publishStatus(ctx, rdbNode1, statusStreamKey, jobID, "done"); err != nil {
+							log.Printf("publish done failed job_id=%s, saving to local fallback: %v", jobID, err)
+							entry, _ := json.Marshal(failedEntry{JobID: jobID, Status: "done"})
+							if pushErr := rdbLocal.RPush(ctx, failedStatusKey, string(entry)).Err(); pushErr != nil {
+								log.Printf("fallback push failed job_id=%s: %v", jobID, pushErr)
+							}
 						}
 
-						if err := rdb.XAck(ctx, streamKey, group, msg.ID).Err(); err != nil {
+						if err := rdbNode1.XAck(ctx, streamKey, group, msg.ID).Err(); err != nil {
 							log.Printf("xack failed id=%s: %v", msg.ID, err)
-							continue
 						}
 					}
 				}

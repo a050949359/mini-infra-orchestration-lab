@@ -92,6 +92,9 @@
           JOB_DB_PATH={{ sqlite_db_path }}
           REDIS_URL={{ redis_url }}
           QUEUE_STREAM_KEY={{ queue_stream_key }}
+          STATUS_STREAM_KEY={{ status_stream_key }}
+          STATUS_GROUP={{ status_consumer_group }}
+          STATUS_BLOCK_MS={{ status_consumer_block_ms }}
 
     - name: Remove API data directory for clean redeploy
       ansible.builtin.file:
@@ -168,10 +171,73 @@
         state: started
         daemon_reload: true
 
+    - name: Upload publish_failed_checker script
+      ansible.builtin.copy:
+        src: ../node1_api/publish_failed_checker.py
+        dest: "{{ api_app_dir }}/publish_failed_checker.py"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Schedule publish_failed_checker via cron
+      ansible.builtin.cron:
+        name: mini-orch publish_failed_checker
+        minute: "0"
+        hour: "*"
+        user: root
+        job: >-
+          /bin/bash -c 'set -a; source {{ api_env_file }}; set +a;
+          {{ api_venv_path }}/bin/python3 {{ api_app_dir }}/publish_failed_checker.py'
+          >> /var/log/mini-orch/publish_failed_checker.log 2>&1
+
+    - name: Upload status consumer script
+      ansible.builtin.copy:
+        src: ../node1_api/status_consumer.py
+        dest: "{{ api_app_dir }}/status_consumer.py"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Create systemd service for status consumer
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ status_consumer_service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Node1 Status Consumer Service
+          After=network.target redis-server.service {{ api_service_name }}.service
+
+          [Service]
+          Type=simple
+          EnvironmentFile={{ api_env_file }}
+          WorkingDirectory={{ api_app_dir }}
+          ExecStart={{ api_venv_path }}/bin/python3 {{ api_app_dir }}/status_consumer.py
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart status consumer
+
+    - name: Ensure status consumer service enabled and started
+      ansible.builtin.systemd:
+        name: "{{ status_consumer_service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
   handlers:
     - name: Restart node1 API
       ansible.builtin.systemd:
         name: "{{ api_service_name }}"
+        state: restarted
+        daemon_reload: true
+
+    - name: Restart status consumer
+      ansible.builtin.systemd:
+        name: "{{ status_consumer_service_name }}"
         state: restarted
         daemon_reload: true
 
@@ -180,9 +246,8 @@
   become: true
   gather_facts: false
   vars:
-    node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | default('127.0.0.1')) }}"
+    node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | default('127.0.0.1') }}"
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
-    node1_api_url: "http://{{ node1_redis_host }}:5000"
 
   tasks:
     - name: Check worker binary exists on control node
@@ -215,13 +280,16 @@
         mode: "0644"
         content: |
           REDIS_URL={{ redis_url }}
-          NODE1_API_URL={{ node1_api_url }}
+          NODE2_REDIS_URL=redis://localhost:6379/0
           WORKER_LOG_FILE={{ worker_log_file }}
           QUEUE_STREAM_KEY={{ queue_stream_key }}
           QUEUE_GROUP={{ worker_queue_group }}
           QUEUE_CONSUMER={{ inventory_hostname }}
           QUEUE_BATCH_SIZE={{ worker_queue_batch_size }}
           QUEUE_BLOCK_MS={{ worker_queue_block_ms }}
+          STATUS_STREAM_KEY={{ status_stream_key }}
+          STATUS_FAILED_KEY={{ status_failed_key }}
+          STATUS_RETRY_INTERVAL_MS={{ worker_status_retry_interval_ms }}
 
     - name: Create systemd service for node2 worker
       ansible.builtin.copy:

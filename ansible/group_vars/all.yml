@@ -18,3 +18,10 @@ worker_log_file: /var/log/mini-orch/worker.log
 worker_queue_group: mini-orch-workers
 worker_queue_batch_size: 10
 worker_queue_block_ms: 5000
+worker_status_retry_interval_ms: 30000
+
+status_stream_key: jobs:status
+status_failed_key: jobs:status:failed
+status_consumer_service_name: mini-orch-status-consumer
+status_consumer_group: status-updaters
+status_consumer_block_ms: 5000
