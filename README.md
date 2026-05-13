@@ -1,9 +1,12 @@
 # mini-infra-orchestration-lab
-簡單使用 ansible 部署環境與程式至兩台免費 oracle cloud 主機
-node1 flask api 使用 redis stream enqueue 
-node2 goroutine 消化 queu 工作 
-K6壓測 
-snmp 監控
+
+簡單使用 Ansible 部署環境與程式至兩台免費 Oracle Cloud 主機
+
+- **node1**：Flask API，使用 Redis Stream 接收任務並 enqueue
+- **node2**：Go worker，多 goroutine 消化 queue 工作，狀態寫回 node1 Redis Stream
+- **容錯**：node2 → node1 status 寫入失敗時暫存至 node2 local Redis，定期重試
+- **壓測**：K6 staged ramp-up，透過 Loadtest API 外部控制參數
+- **監控**：SNMP 收集兩台主機 CPU / 記憶體，存 Redis 供壓測報告使用
 
 ## 控制與遠端安裝
 
