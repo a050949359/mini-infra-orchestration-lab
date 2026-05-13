@@ -53,7 +53,7 @@ def collect(rdb: redis.Redis) -> None:
             if val is None:
                 continue
             key = f"snmp:{label}:{metric}"
-            pipe.zadd(key, {str(val): ts})
+            pipe.zadd(key, {f"{ts:.3f}:{val}": ts})
             pipe.expire(key, RETENTION_SEC)
 
     pipe.execute()

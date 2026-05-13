@@ -32,7 +32,8 @@ def _fetch_snmp(started_at: str, finished_at: str) -> dict[str, Any]:
             metrics_by_ts: dict[float, dict] = {}
             for metric in SNMP_METRICS:
                 key = f"snmp:{node}:{metric}"
-                for val, ts in rdb.zrangebyscore(key, start_ts, end_ts, withscores=True):
+                for member, ts in rdb.zrangebyscore(key, start_ts, end_ts, withscores=True):
+                    val = member.split(":", 1)[1]
                     metrics_by_ts.setdefault(ts, {
                         "ts": datetime.fromtimestamp(ts, timezone.utc).isoformat(),
                     })[metric] = float(val)
@@ -50,7 +51,7 @@ def _execute(run_id: str, script: str, extra_args: list[str], api_url: str) -> N
             cmd,
             capture_output=True,
             text=True,
-            env={**os.environ, "API_URL": api_url},
+            env={**os.environ, "API_URL": api_url, "RUN_ID": run_id},
         )
         output = proc.stdout + proc.stderr
         exit_code = proc.returncode
@@ -61,18 +62,12 @@ def _execute(run_id: str, script: str, extra_args: list[str], api_url: str) -> N
     finished_at = datetime.now(timezone.utc).isoformat()
 
     with _lock:
-        started_at = _runs[run_id]["started_at"]
-
-    snmp = _fetch_snmp(started_at, finished_at)
-
-    with _lock:
         if run_id in _runs:
             _runs[run_id].update({
                 "status": "done" if exit_code == 0 else "failed",
                 "exit_code": exit_code,
                 "k6_output": output,
                 "finished_at": finished_at,
-                "snmp": snmp,
             })
 
 
@@ -108,7 +103,6 @@ def start_run() -> Any:
             "finished_at": None,
             "exit_code": None,
             "k6_output": None,
-            "snmp": {},
         }
 
     threading.Thread(
