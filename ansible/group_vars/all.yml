@@ -2,6 +2,10 @@
 redis_password: "IntraNet-Redis-2026!ChangeMe"
 api_app_dir: /opt/mini-orch
 loadtest_dir: /opt/mini-orch-loadtest
+loadtest_service_name: mini-orch-loadtest
+loadtest_env_file: /etc/mini-orch-loadtest.env
+loadtest_port: 5001
+loadtest_bind_host: ""
 api_venv_path: /opt/mini-orch-venv
 api_service_name: mini-orch-api
 api_env_file: /etc/mini-orch-api.env

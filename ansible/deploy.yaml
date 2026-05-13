@@ -206,6 +206,51 @@
         state: started
         daemon_reload: true
 
+    - name: Create loadtest service environment file
+      ansible.builtin.copy:
+        dest: "{{ loadtest_env_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          NODE1_HOST=127.0.0.1
+          NODE2_HOST={{ hostvars['node2']['ansible_host'] }}
+          SNMP_COMMUNITY=public
+          SNMP_POLL_INTERVAL=5
+          LOADTEST_SCRIPT_DIR={{ loadtest_dir }}
+          LOADTEST_PORT={{ loadtest_port }}
+          LOADTEST_BIND_HOST={{ loadtest_bind_host | default('127.0.0.1') }}
+
+    - name: Create systemd service for loadtest API
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ loadtest_service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Mini-Orch Loadtest API
+          After=network.target {{ api_service_name }}.service
+
+          [Service]
+          Type=simple
+          EnvironmentFile={{ loadtest_env_file }}
+          WorkingDirectory={{ api_app_dir }}
+          ExecStart={{ api_venv_path }}/bin/python3 {{ api_app_dir }}/loadtest_server.py
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart loadtest API
+
+    - name: Ensure loadtest API service enabled and started
+      ansible.builtin.systemd:
+        name: "{{ loadtest_service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
   handlers:
     - name: Restart node1 API
       ansible.builtin.systemd:
@@ -216,6 +261,11 @@
     - name: Restart status consumer
       ansible.builtin.systemd:
         name: "{{ status_consumer_service_name }}"
+        state: restarted
+
+    - name: Restart loadtest API
+      ansible.builtin.systemd:
+        name: "{{ loadtest_service_name }}"
         state: restarted
         daemon_reload: true
 
