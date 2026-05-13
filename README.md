@@ -2,10 +2,12 @@
 簡單使用 ansible 部署環境與程式至兩台免費 oracle cloud 主機
 node1 flask api 使用 redis stream enqueue 
 node2 goroutine 消化 queu 工作 
+K6壓測 
+snmp 監控
 
 ## 控制與遠端安裝
 
-### Ubuntu 24.04 控制端初始化
+#### Ubuntu 24.04 控制端初始化
 
 ```bash
 chmod +x ./ansible/setup_ansible_server.sh
@@ -27,20 +29,17 @@ chmod +x ./ansible/setup_ansible_server.sh
    - `/etc/ansible/ansible.cfg`
 7. 對所有主機執行連線測試（`/etc/ansible/ping.yaml`）
 
-### 遠端環境安裝
+#### 遠端安裝
 
 ```bash
+# 遠端環境安裝
 source ~/ansible-env/bin/activate
 ansible-playbook /etc/ansible/setup.yaml
-```
 
-### node2 golang 編譯
-```bash
+# node2 golang 編譯
 ./node2_worker/build.sh
-```
 
-### 遠端環境部署
-```bash
+# 遠端程式部署
 ansible-playbook /etc/ansible/deploy.yaml
 ```
 
@@ -57,6 +56,7 @@ ansible-playbook /etc/ansible/deploy.yaml
 - 開放 PORT `5000` `6379` 給內網
 
 ```bash
+sudo iptables -I INPUT -p tcp -s <remote ip> --dport 5001 -j ACCEPT
 sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 5000 -j ACCEPT
 sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 6379 -j ACCEPT
 ```
@@ -69,6 +69,8 @@ sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 6379 -j ACCEPT
 sudo iptables -I INPUT -p udp -s 10.0.0.143/32 --dport 161 -j ACCEPT
 ```
 
+### 雲端還需要額外設定雲端的防火牆
+
 ## SNMP 設定
 
 `setup.yaml` 會在兩台 node 安裝並啟動 `snmpd`，但預設只允許 localhost 查詢。
@@ -77,14 +79,18 @@ sudo iptables -I INPUT -p udp -s 10.0.0.143/32 --dport 161 -j ACCEPT
 ### node2 — 允許 node1 查詢
 
 ```bash
-sudo nano /etc/snmp/snmpd.conf
+sudo vim /etc/snmp/snmpd.conf
 ```
 
-找到（或新增）`rocommunity` 行，加入 node1 的 private IP：
-
+編輯以下
 ```
-rocommunity public localhost
-rocommunity public <node1-private-ip>
+agentaddress <node2-private-ip>:161
+
+# 此行 node1 也需要加
+view   systemonly  included   .1.3.6.1.4.1.2021
+
+rocommunity  public 10.0.0.0/24 -V systemonly
+rocommunity6:  public 10.0.0.0/24 -V systemonly
 ```
 
 儲存後重啟：
@@ -119,15 +125,74 @@ snmpget -v2c -c public <node2-private-ip> 1.3.6.1.4.1.2021.4.6.0
 ### 更換 community string
 
 預設使用 `public`，可透過 `SNMP_COMMUNITY` 環境變數覆蓋（寫入 `loadtest_env_file`）：
+snmpd.conf 也需要同步修改
 
 ```
 SNMP_COMMUNITY=mystring
 ```
 
+## 壓測
+
+Loadtest API 運行於 node1 port `5001`，透過 HTTP 啟動 k6 壓測並在結束後回傳結果與 SNMP 資料。
+
+### 啟動壓測
+
+```bash
+curl -s -X POST http://<node1-ip>:5001/api/v1/loadtest/runs \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "vus": 20,
+    "duration": "30s",
+    "api_url": "http://localhost:5000"
+  }' | jq .
+# → {"run_id": "...", "status": "running", "started_at": "..."}
+```
+
+**可用參數：**
+
+| 參數 | 說明 | 預設 |
+|------|------|------|
+| `vus` | 固定併發數，覆蓋腳本 stages | 依腳本 |
+| `duration` | 測試時長（如 `"30s"`, `"2m"`），覆蓋腳本 stages | 依腳本 |
+| `api_url` | 壓測目標 URL | `http://localhost:5000` |
+| `script` | loadtest 目錄下的腳本檔名 | `api_stress.js` |
+
+### 查詢結果
+
+測試進行中回 `202 running`，結束後一次回傳完整結果：
+
+```bash
+curl -s http://<node1-ip>:5001/api/v1/loadtest/runs/<run_id> | jq .
+```
+
+結束後的 response：
+
+```json
+{
+  "status": "done",
+  "exit_code": 0,
+  "k6_output": "...",
+  "snmp": {
+    "node1": [{"ts": "...", "cpu_load1": 0.5, "mem_total_kb": 2048000, "mem_avail_kb": 1200000}],
+    "node2": [...]
+  },
+  "started_at": "...",
+  "finished_at": "..."
+}
+```
+
+### k6 腳本說明（`api_stress.js`）
+
+- Stages：20 → 50 → 100 VU，峰值維持 60s，共約 200s
+- 每個 VU：POST `/api/v1/jobs` → 等 200ms → GET `/api/v1/jobs/<id>`
+- 10% 機率送壞 payload（驗證 API 400 路徑）
+- action 含 `force_fail` 時 worker 模擬失敗（約 20% 機率）
+
 ## systemd 服務名稱
 
 - node1 API: `mini-orch-api`
 - node1 Status Consumer: `mini-orch-status-consumer`
+- node1 SNMP Collector: `mini-orch-snmp-collector`（寫入 Redis DB 1）
 - node1 Loadtest API: `mini-orch-loadtest`（port `5001`）
 - node2 worker: `mini-orch-worker`
 
