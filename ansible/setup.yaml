@@ -87,6 +87,29 @@
           - sqlite3
         state: present
 
+    - name: Download k6 GPG key
+      ansible.builtin.get_url:
+        url: https://dl.k6.io/key.gpg
+        dest: /tmp/k6-key.gpg
+        mode: "0644"
+
+    - name: Dearmor k6 GPG key
+      ansible.builtin.command:
+        cmd: gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg /tmp/k6-key.gpg
+        creates: /usr/share/keyrings/k6-archive-keyring.gpg
+
+    - name: Add k6 apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main"
+        filename: k6
+        state: present
+
+    - name: Install k6
+      ansible.builtin.apt:
+        name: k6
+        update_cache: true
+        state: present
+
     - name: Show control node setup summary
       ansible.builtin.debug:
         msg: "node1 ready. Run deploy.yaml to deploy the API."

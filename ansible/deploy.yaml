@@ -53,6 +53,14 @@
           - "--exclude=*.pyc"
           - "--chown=root:root"
 
+    - name: Upload loadtest scripts
+      ansible.posix.synchronize:
+        src: ../loadtest/
+        dest: "{{ loadtest_dir }}/"
+        delete: true
+        rsync_opts:
+          - "--chown=root:root"
+
     - name: Ensure API venv exists
       ansible.builtin.command:
         cmd: "python3 -m venv {{ api_venv_path }}"
