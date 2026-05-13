@@ -11,9 +11,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const maxStatusRetries = 3
+
 type failedEntry struct {
-	JobID  string `json:"job_id"`
-	Status string `json:"status"`
+	JobID   string `json:"job_id"`
+	Status  string `json:"status"`
+	Retries int    `json:"retries"`
 }
 
 func publishStatus(ctx context.Context, rdb *redis.Client, stream, jobID, status string) error {
@@ -46,8 +49,8 @@ func processMessage(ctx context.Context, rdbNode1, rdbLocal *redis.Client, msg r
 
 	if strings.Contains(sm.Payload.Action, "force_fail") {
 		log.Printf("simulated failure job_id=%s action=%s", sm.JobID, sm.Payload.Action)
-		if err := publishStatus(ctx, rdbNode1, cfg.statusStreamKey, sm.JobID, "failed"); err != nil {
-			log.Printf("publish failed status error job_id=%s: %v", sm.JobID, err)
+		if err := publishStatus(ctx, rdbNode1, cfg.statusStreamKey, sm.JobID, "failed:force_fail"); err != nil {
+			log.Printf("publish failed:force_fail error job_id=%s: %v", sm.JobID, err)
 		}
 		if err := rdbNode1.XAck(ctx, cfg.streamKey, cfg.group, msg.ID).Err(); err != nil {
 			log.Printf("xack failed id=%s: %v", msg.ID, err)
@@ -106,7 +109,7 @@ func runWorker(ctx context.Context, rdbNode1, rdbLocal *redis.Client, cfg appCon
 	}
 }
 
-func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, failedKey, statusStream string, interval time.Duration) {
+func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, failedKey, deadKey, statusStream string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -129,9 +132,28 @@ func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, fa
 					continue
 				}
 				if err := publishStatus(ctx, rdbNode1, statusStream, entry.JobID, entry.Status); err != nil {
-					log.Printf("retry: xadd failed job_id=%s: %v, re-queuing", entry.JobID, err)
-					if pushErr := rdbLocal.RPush(ctx, failedKey, val).Err(); pushErr != nil {
-						log.Printf("retry: re-queue failed job_id=%s: %v", entry.JobID, pushErr)
+					entry.Retries++
+					if entry.Retries >= maxStatusRetries {
+						log.Printf("retry: max retries reached job_id=%s, publishing dead", entry.JobID)
+						if deadErr := publishStatus(ctx, rdbNode1, statusStream, entry.JobID, "dead"); deadErr != nil {
+							log.Printf("retry: dead publish failed job_id=%s: %v", entry.JobID, deadErr)
+						}
+						updated, marshalErr := json.Marshal(entry)
+						if marshalErr == nil {
+							if pushErr := rdbLocal.RPush(ctx, deadKey, string(updated)).Err(); pushErr != nil {
+								log.Printf("retry: dead letter push failed job_id=%s: %v", entry.JobID, pushErr)
+							}
+						}
+					} else {
+						log.Printf("retry: xadd failed job_id=%s (attempt %d/%d): %v", entry.JobID, entry.Retries, maxStatusRetries, err)
+						updated, marshalErr := json.Marshal(entry)
+						if marshalErr != nil {
+							log.Printf("retry: marshal failed job_id=%s: %v", entry.JobID, marshalErr)
+							break
+						}
+						if pushErr := rdbLocal.RPush(ctx, failedKey, string(updated)).Err(); pushErr != nil {
+							log.Printf("retry: re-queue failed job_id=%s: %v", entry.JobID, pushErr)
+						}
 					}
 					break
 				}

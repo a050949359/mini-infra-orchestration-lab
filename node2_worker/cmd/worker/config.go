@@ -32,6 +32,7 @@ type workerConfig struct {
 	group           string
 	statusStreamKey string
 	failedStatusKey string
+	deadStatusKey   string
 	processDelay    time.Duration
 }
 
@@ -70,6 +71,7 @@ func loadConfig() appConfig {
 			group:           getenv("QUEUE_GROUP", "node2-workers"),
 			statusStreamKey: getenv("STATUS_STREAM_KEY", "jobs:status"),
 			failedStatusKey: getenv("STATUS_FAILED_KEY", "jobs:status:failed"),
+			deadStatusKey:   getenv("STATUS_DEAD_KEY", "jobs:status:dead"),
 			processDelay:    time.Duration(getenvInt("WORKER_PROCESS_SLEEP_MS", 5000)) * time.Millisecond,
 		},
 	}
