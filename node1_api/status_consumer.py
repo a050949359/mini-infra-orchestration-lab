@@ -16,7 +16,14 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-ALLOWED_STATUSES = {"queued", "processing", "done", "failed", "publish_failed"}
+ALLOWED_STATUSES = {"queued", "processing", "done", "failed", "failed:force_fail", "publish_failed", "dead"}
+WORKER_STATS_KEY = "worker:stats"
+STAT_MAP = {
+    "done":             "processed",
+    "failed":           "failed",
+    "failed:force_fail": "failed:force_fail",
+    "dead":             "dead",
+}
 
 
 def utc_now() -> str:
@@ -80,10 +87,11 @@ def main() -> None:
                     rdb.xack(cfg.status_stream_key, cfg.group, msg_id)
                     continue
 
+                db_status = "failed" if status == "failed:force_fail" else status
                 try:
                     cur = db.execute(
                         "UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?",
-                        (status, utc_now(), job_id),
+                        (db_status, utc_now(), job_id),
                     )
                     db.commit()
                 except sqlite3.Error as e:
@@ -95,6 +103,12 @@ def main() -> None:
 
                 rdb.xack(cfg.status_stream_key, cfg.group, msg_id)
                 log.info("updated job_id=%s status=%s", job_id, status)
+
+                if stat_field := STAT_MAP.get(status):
+                    try:
+                        rdb.hincrby(WORKER_STATS_KEY, stat_field, 1)
+                    except redis.RedisError as e:
+                        log.warning("stats incr failed field=%s: %s", stat_field, e)
 
     db.close()
     rdb.close()
