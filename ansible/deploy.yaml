@@ -207,6 +207,20 @@
         state: started
         daemon_reload: true
 
+    - name: Create SNMP collector environment file
+      ansible.builtin.copy:
+        dest: "{{ snmp_env_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          SNMP_REDIS_URL={{ snmp_redis_url }}
+          NODE1_HOST=127.0.0.1
+          NODE2_HOST={{ hostvars['node2']['private_ip'] | default('') }}
+          SNMP_COMMUNITY=public
+          SNMP_POLL_INTERVAL=5
+          SNMP_RETENTION_HOURS={{ snmp_retention_hours }}
+
     - name: Create loadtest service environment file
       ansible.builtin.copy:
         dest: "{{ loadtest_env_file }}"
@@ -214,15 +228,10 @@
         group: root
         mode: "0644"
         content: |
-          NODE1_HOST=127.0.0.1
-          NODE2_HOST={{ hostvars['node2']['private_ip'] | default('') }}
-          SNMP_COMMUNITY=public
-          SNMP_POLL_INTERVAL=5
+          SNMP_REDIS_URL={{ snmp_redis_url }}
           LOADTEST_SCRIPT_DIR={{ loadtest_dir }}
           LOADTEST_PORT={{ loadtest_port }}
           LOADTEST_BIND_HOST={{ loadtest_bind_host | default('127.0.0.1') }}
-          SNMP_REDIS_URL={{ snmp_redis_url }}
-          SNMP_RETENTION_HOURS={{ snmp_retention_hours }}
 
     - name: Create systemd service for SNMP collector
       ansible.builtin.copy:
@@ -237,7 +246,7 @@
 
           [Service]
           Type=simple
-          EnvironmentFile={{ loadtest_env_file }}
+          EnvironmentFile={{ snmp_env_file }}
           WorkingDirectory={{ api_app_dir }}
           ExecStart={{ api_venv_path }}/bin/python3 {{ api_app_dir }}/snmp_collector.py
           Restart=always
@@ -314,6 +323,7 @@
   vars:
     node1_redis_host: "{{ hostvars['node1']['private_ip'] | default('127.0.0.1') }}"
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
+    node2_local_redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
 
   tasks:
     - name: Check worker binary exists on control node
@@ -346,7 +356,7 @@
         mode: "0644"
         content: |
           REDIS_URL={{ redis_url }}
-          NODE2_REDIS_URL=redis://localhost:6379/0
+          NODE2_REDIS_URL={{ node2_local_redis_url }}
           WORKER_LOG_FILE={{ worker_log_file }}
           QUEUE_STREAM_KEY={{ queue_stream_key }}
           QUEUE_GROUP={{ worker_queue_group }}

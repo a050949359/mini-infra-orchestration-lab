@@ -52,9 +52,13 @@ func loadConfig() appConfig {
 	if redisURL == "" {
 		log.Fatal("REDIS_URL must be set")
 	}
+	node2RedisURL := os.Getenv("NODE2_REDIS_URL")
+	if node2RedisURL == "" {
+		log.Fatal("NODE2_REDIS_URL must be set")
+	}
 	return appConfig{
 		redisURL:      redisURL,
-		node2RedisURL: getenv("NODE2_REDIS_URL", "redis://localhost:6379/0"),
+		node2RedisURL: node2RedisURL,
 		logFile:       getenv("WORKER_LOG_FILE", "/var/log/mini-orch/worker.log"),
 		consumerBase:  getenv("QUEUE_CONSUMER", "node2-worker"),
 		workerCount:   getenvInt("WORKER_GOROUTINES", 5),
