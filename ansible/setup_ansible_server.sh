@@ -137,27 +137,21 @@ setup_ansible_dir() {
 
   # setup.yaml
   if [[ -f "${SETUP_SRC}" ]]; then
-    run_sudo cp -n "${SETUP_SRC}" "${ANSIBLE_HOME}/setup.yaml" 2>/dev/null \
-      && log "Placed: ${ANSIBLE_HOME}/setup.yaml" \
-      || log "Skip (exists): ${ANSIBLE_HOME}/setup.yaml"
+    run_sudo cp "${SETUP_SRC}" "${ANSIBLE_HOME}/setup.yaml" && log "Placed: ${ANSIBLE_HOME}/setup.yaml"
   else
     warn "setup.yaml not found in ${SCRIPT_DIR}, skipping."
   fi
 
   # ping.yaml
   if [[ -f "${PING_SRC}" ]]; then
-    run_sudo cp -n "${PING_SRC}" "${ANSIBLE_HOME}/ping.yaml" 2>/dev/null \
-      && log "Placed: ${ANSIBLE_HOME}/ping.yaml" \
-      || log "Skip (exists): ${ANSIBLE_HOME}/ping.yaml"
+    run_sudo cp "${PING_SRC}" "${ANSIBLE_HOME}/ping.yaml" && log "Placed: ${ANSIBLE_HOME}/ping.yaml"
   else
     warn "ping.yaml not found in ${SCRIPT_DIR}, skipping."
   fi
 
   # hosts.ini → /etc/ansible/hosts.ini
   if [[ -f "${HOSTS_INI_SRC}" ]]; then
-    run_sudo cp -n "${HOSTS_INI_SRC}" "${ANSIBLE_HOME}/hosts.ini" 2>/dev/null \
-      && log "Placed: ${ANSIBLE_HOME}/hosts.ini" \
-      || log "Skip (exists): ${ANSIBLE_HOME}/hosts.ini"
+    run_sudo cp "${HOSTS_INI_SRC}" "${ANSIBLE_HOME}/hosts.ini" && log "Placed: ${ANSIBLE_HOME}/hosts.ini"
   else
     warn "hosts.ini not found in ${SCRIPT_DIR}, skipping."
   fi
