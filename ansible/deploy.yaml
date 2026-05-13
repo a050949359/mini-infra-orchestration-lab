@@ -214,7 +214,7 @@
         mode: "0644"
         content: |
           NODE1_HOST=127.0.0.1
-          NODE2_HOST={{ hostvars['node2']['ansible_host'] }}
+          NODE2_HOST={{ hostvars['node2']['private_ip'] }}
           SNMP_COMMUNITY=public
           SNMP_POLL_INTERVAL=5
           LOADTEST_SCRIPT_DIR={{ loadtest_dir }}
@@ -274,7 +274,7 @@
   become: true
   gather_facts: false
   vars:
-    node1_redis_host: "{{ hostvars['node1']['redis_private_ip'] | default('127.0.0.1') }}"
+    node1_redis_host: "{{ hostvars['node1']['private_ip'] | default('127.0.0.1') }}"
     redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
 
   tasks:
