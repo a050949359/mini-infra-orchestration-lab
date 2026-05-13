@@ -8,6 +8,7 @@
     snmp_redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/1' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/1' }}"
 
   tasks:
+    # ── Backup ────────────────────────────────────────────────────────────
     - name: Ensure SQLite backup directory exists
       ansible.builtin.file:
         path: "{{ sqlite_backup_dir }}"
@@ -31,19 +32,47 @@
         mode: "0640"
       when: sqlite_db_stat.stat.exists
 
-    - name: Remove API app directory for clean redeploy
-      ansible.builtin.file:
-        path: "{{ api_app_dir }}"
-        state: absent
+    # ── Stop all services ─────────────────────────────────────────────────
+    - name: Stop all node1 services before redeploy
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - "{{ loadtest_service_name }}"
+        - "{{ snmp_collector_service_name }}"
+        - "{{ status_consumer_service_name }}"
+        - "{{ api_service_name }}"
+        - node1-api
+        - node1-api.service
+      failed_when: false
 
-    - name: Ensure API app directory exists
+    - name: Kill any process listening on port 5000
+      ansible.builtin.shell: |
+        set -o pipefail
+        pids=$(ss -ltnp '( sport = :5000 )' | awk -F 'pid=' 'NR>1 && NF>1 {split($2,a,",|"); print a[1]}' | sort -u)
+        if [[ -n "$pids" ]]; then
+          kill -9 $pids
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    # ── Directories ───────────────────────────────────────────────────────
+    - name: Remove and recreate app and data directories
       ansible.builtin.file:
-        path: "{{ api_app_dir }}"
-        state: directory
+        path: "{{ item.path }}"
+        state: "{{ item.state }}"
         owner: root
         group: root
-        mode: "0755"
+        mode: "{{ item.mode | default('0755') }}"
+      loop:
+        - { path: "{{ api_app_dir }}",   state: absent }
+        - { path: "{{ api_app_dir }}",   state: directory }
+        - { path: "{{ api_data_dir }}",  state: absent }
+        - { path: "{{ api_data_dir }}",  state: directory }
 
+    # ── Upload source ─────────────────────────────────────────────────────
     - name: Upload node1 API source
       ansible.posix.synchronize:
         src: ../node1_api/
@@ -62,6 +91,7 @@
         rsync_opts:
           - "--chown=root:root"
 
+    # ── Python dependencies ───────────────────────────────────────────────
     - name: Ensure API venv exists
       ansible.builtin.command:
         cmd: "python3 -m venv {{ api_venv_path }}"
@@ -72,11 +102,7 @@
         requirements: "{{ api_app_dir }}/requirements.txt"
         virtualenv: "{{ api_venv_path }}"
 
-    - name: Ensure Gunicorn is installed in API venv
-      ansible.builtin.pip:
-        name: gunicorn
-        virtualenv: "{{ api_venv_path }}"
-
+    # ── Environment files ─────────────────────────────────────────────────
     - name: Create API environment file
       ansible.builtin.copy:
         dest: "{{ api_env_file }}"
@@ -90,122 +116,6 @@
           STATUS_STREAM_KEY={{ status_stream_key }}
           STATUS_GROUP={{ status_consumer_group }}
           STATUS_BLOCK_MS={{ status_consumer_block_ms }}
-
-    - name: Remove API data directory for clean redeploy
-      ansible.builtin.file:
-        path: "{{ api_data_dir }}"
-        state: absent
-
-    - name: Ensure API data directory exists
-      ansible.builtin.file:
-        path: "{{ api_data_dir }}"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Create systemd service for node1 API
-      ansible.builtin.copy:
-        dest: "/etc/systemd/system/{{ api_service_name }}.service"
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          [Unit]
-          Description=Node1 Flask API Service
-          After=network.target redis-server.service
-
-          [Service]
-          Type=simple
-          EnvironmentFile={{ api_env_file }}
-          WorkingDirectory={{ api_app_dir }}
-          ExecStart={{ api_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
-          Restart=always
-          RestartSec=3
-
-          [Install]
-          WantedBy=multi-user.target
-      notify: Restart node1 API
-
-    - name: Stop and disable legacy node1-api service if present
-      ansible.builtin.systemd:
-        name: node1-api
-        enabled: false
-        state: stopped
-      failed_when: false
-
-    - name: Stop and disable legacy node1-api.service unit if present
-      ansible.builtin.systemd:
-        name: node1-api.service
-        enabled: false
-        state: stopped
-      failed_when: false
-
-    - name: Stop and disable current API service before restart
-      ansible.builtin.systemd:
-        name: "{{ api_service_name }}"
-        state: stopped
-      failed_when: false
-
-    - name: Kill any process listening on port 5000
-      ansible.builtin.shell: |
-        set -o pipefail
-        pids=$(ss -ltnp '( sport = :5000 )' | awk -F 'pid=' 'NR>1 && NF>1 {split($2,a,",|"); print a[1]}' | sort -u)
-        if [[ -n "$pids" ]]; then
-          kill -9 $pids
-        fi
-      args:
-        executable: /bin/bash
-      changed_when: false
-      failed_when: false
-
-    - name: Ensure node1 API service enabled and started
-      ansible.builtin.systemd:
-        name: "{{ api_service_name }}"
-        enabled: true
-        state: started
-        daemon_reload: true
-
-    - name: Schedule publish_failed_checker via cron
-      ansible.builtin.cron:
-        name: mini-orch publish_failed_checker
-        minute: "0"
-        hour: "*"
-        user: root
-        job: >-
-          /bin/bash -c 'set -a; source {{ api_env_file }}; set +a;
-          {{ api_venv_path }}/bin/python3 {{ api_app_dir }}/publish_failed_checker.py'
-          >> /var/log/mini-orch/publish_failed_checker.log 2>&1
-
-    - name: Create systemd service for status consumer
-      ansible.builtin.copy:
-        dest: "/etc/systemd/system/{{ status_consumer_service_name }}.service"
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          [Unit]
-          Description=Node1 Status Consumer Service
-          After=network.target redis-server.service {{ api_service_name }}.service
-
-          [Service]
-          Type=simple
-          EnvironmentFile={{ api_env_file }}
-          WorkingDirectory={{ api_app_dir }}
-          ExecStart={{ api_venv_path }}/bin/python3 {{ api_app_dir }}/status_consumer.py
-          Restart=always
-          RestartSec=3
-
-          [Install]
-          WantedBy=multi-user.target
-      notify: Restart status consumer
-
-    - name: Ensure status consumer service enabled and started
-      ansible.builtin.systemd:
-        name: "{{ status_consumer_service_name }}"
-        enabled: true
-        state: started
-        daemon_reload: true
 
     - name: Create SNMP collector environment file
       ansible.builtin.copy:
@@ -233,6 +143,53 @@
           LOADTEST_PORT={{ loadtest_port }}
           LOADTEST_BIND_HOST={{ loadtest_bind_host | default('127.0.0.1') }}
 
+    # ── Service unit files ────────────────────────────────────────────────
+    - name: Create systemd service for node1 API
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ api_service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Node1 Flask API Service
+          After=network.target redis-server.service
+
+          [Service]
+          Type=simple
+          EnvironmentFile={{ api_env_file }}
+          WorkingDirectory={{ api_app_dir }}
+          ExecStart={{ api_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart node1 API
+
+    - name: Create systemd service for status consumer
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ status_consumer_service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Node1 Status Consumer Service
+          After=network.target redis-server.service {{ api_service_name }}.service
+
+          [Service]
+          Type=simple
+          EnvironmentFile={{ api_env_file }}
+          WorkingDirectory={{ api_app_dir }}
+          ExecStart={{ api_venv_path }}/bin/python3 {{ api_app_dir }}/status_consumer.py
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart status consumer
+
     - name: Create systemd service for SNMP collector
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ snmp_collector_service_name }}.service"
@@ -255,13 +212,6 @@
           [Install]
           WantedBy=multi-user.target
       notify: Restart SNMP collector
-
-    - name: Ensure SNMP collector service enabled and started
-      ansible.builtin.systemd:
-        name: "{{ snmp_collector_service_name }}"
-        enabled: true
-        state: started
-        daemon_reload: true
 
     - name: Create systemd service for loadtest API
       ansible.builtin.copy:
@@ -286,12 +236,33 @@
           WantedBy=multi-user.target
       notify: Restart loadtest API
 
-    - name: Ensure loadtest API service enabled and started
+    # ── Reload & start ────────────────────────────────────────────────────
+    - name: Reload systemd daemon
       ansible.builtin.systemd:
-        name: "{{ loadtest_service_name }}"
+        daemon_reload: true
+
+    - name: Ensure all node1 services enabled and started
+      ansible.builtin.systemd:
+        name: "{{ item }}"
         enabled: true
         state: started
-        daemon_reload: true
+      loop:
+        - "{{ api_service_name }}"
+        - "{{ status_consumer_service_name }}"
+        - "{{ snmp_collector_service_name }}"
+        - "{{ loadtest_service_name }}"
+
+    # ── Cron ──────────────────────────────────────────────────────────────
+    - name: Schedule publish_failed_checker via cron
+      ansible.builtin.cron:
+        name: mini-orch publish_failed_checker
+        minute: "0"
+        hour: "*"
+        user: root
+        job: >-
+          /bin/bash -c 'set -a; source {{ api_env_file }}; set +a;
+          {{ api_venv_path }}/bin/python3 {{ api_app_dir }}/publish_failed_checker.py'
+          >> /var/log/mini-orch/publish_failed_checker.log 2>&1
 
   handlers:
     - name: Restart node1 API
@@ -389,12 +360,15 @@
           WantedBy=multi-user.target
       notify: Restart node2 worker
 
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
     - name: Ensure node2 worker service enabled and started
       ansible.builtin.systemd:
         name: "{{ worker_service_name }}"
         enabled: true
         state: started
-        daemon_reload: true
 
   handlers:
     - name: Restart node2 worker
