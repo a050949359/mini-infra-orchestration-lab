@@ -6,6 +6,8 @@ loadtest_service_name: mini-orch-loadtest
 loadtest_env_file: /etc/mini-orch-loadtest.env
 loadtest_port: 5001
 loadtest_bind_host: ""
+snmp_collector_service_name: mini-orch-snmp-collector
+snmp_retention_hours: 3
 api_venv_path: /opt/mini-orch-venv
 api_service_name: mini-orch-api
 api_env_file: /etc/mini-orch-api.env

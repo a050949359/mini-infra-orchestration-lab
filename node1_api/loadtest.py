@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import redis
 from flask import Blueprint, jsonify, request
 
 bp = Blueprint("loadtest", __name__)
@@ -15,59 +16,34 @@ _runs: dict[str, dict] = {}
 _lock = threading.Lock()
 
 SCRIPT_DIR = os.getenv("LOADTEST_SCRIPT_DIR", "/opt/mini-orch-loadtest")
-SNMP_COMMUNITY = os.getenv("SNMP_COMMUNITY", "public")
-SNMP_POLL_INTERVAL = int(os.getenv("SNMP_POLL_INTERVAL", "5"))
-
-SNMP_NODES: list[tuple[str, str]] = [("node1", os.getenv("NODE1_HOST", "127.0.0.1"))]
-if os.getenv("NODE2_HOST"):
-    SNMP_NODES.append(("node2", os.getenv("NODE2_HOST", "")))
-
-SNMP_OIDS = {
-    "cpu_load1":   "1.3.6.1.4.1.2021.10.1.3.1",
-    "mem_total_kb": "1.3.6.1.4.1.2021.4.5.0",
-    "mem_avail_kb": "1.3.6.1.4.1.2021.4.6.0",
-}
+SNMP_REDIS_URL = os.getenv("SNMP_REDIS_URL", "redis://localhost:6379/1")
+SNMP_NODES = ["node1", "node2"]
+SNMP_METRICS = ["cpu_load1", "mem_total_kb", "mem_avail_kb"]
 
 
-def _snmp_get(host: str, oid: str) -> float | None:
+def _fetch_snmp(started_at: str, finished_at: str) -> dict[str, Any]:
+    start_ts = datetime.fromisoformat(started_at).timestamp()
+    end_ts = datetime.fromisoformat(finished_at).timestamp()
+
     try:
-        r = subprocess.run(
-            ["snmpget", "-v2c", "-c", SNMP_COMMUNITY, "-Oqv", host, oid],
-            capture_output=True, text=True, timeout=5,
-        )
-        if r.returncode == 0:
-            return float(r.stdout.strip().strip('"'))
-    except Exception:
-        pass
-    return None
-
-
-def _poll_once() -> dict[str, dict]:
-    ts = datetime.now(timezone.utc).isoformat()
-    result: dict[str, dict] = {}
-    for label, host in SNMP_NODES:
-        sample: dict[str, Any] = {"ts": ts}
-        for name, oid in SNMP_OIDS.items():
-            sample[name] = _snmp_get(host, oid)
-        result[label] = sample
-    return result
-
-
-def _snmp_poller(run_id: str, stop: threading.Event) -> None:
-    while not stop.wait(SNMP_POLL_INTERVAL):
-        samples = _poll_once()
-        with _lock:
-            if run_id not in _runs:
-                break
-            for label, sample in samples.items():
-                _runs[run_id]["snmp"].setdefault(label, []).append(sample)
+        rdb = redis.Redis.from_url(SNMP_REDIS_URL, decode_responses=True)
+        result: dict[str, Any] = {}
+        for node in SNMP_NODES:
+            metrics_by_ts: dict[float, dict] = {}
+            for metric in SNMP_METRICS:
+                key = f"snmp:{node}:{metric}"
+                for val, ts in rdb.zrangebyscore(key, start_ts, end_ts, withscores=True):
+                    metrics_by_ts.setdefault(ts, {
+                        "ts": datetime.fromtimestamp(ts, timezone.utc).isoformat(),
+                    })[metric] = float(val)
+            result[node] = sorted(metrics_by_ts.values(), key=lambda s: s["ts"])
+        rdb.close()
+        return result
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 def _execute(run_id: str, script: str, extra_args: list[str], api_url: str) -> None:
-    stop = threading.Event()
-    poller = threading.Thread(target=_snmp_poller, args=(run_id, stop), daemon=True)
-    poller.start()
-
     cmd = ["k6", "run", "--no-color"] + extra_args + [script]
     try:
         proc = subprocess.run(
@@ -81,9 +57,13 @@ def _execute(run_id: str, script: str, extra_args: list[str], api_url: str) -> N
     except Exception as exc:
         output = str(exc)
         exit_code = -1
-    finally:
-        stop.set()
-        poller.join(timeout=SNMP_POLL_INTERVAL + 2)
+
+    finished_at = datetime.now(timezone.utc).isoformat()
+
+    with _lock:
+        started_at = _runs[run_id]["started_at"]
+
+    snmp = _fetch_snmp(started_at, finished_at)
 
     with _lock:
         if run_id in _runs:
@@ -91,7 +71,8 @@ def _execute(run_id: str, script: str, extra_args: list[str], api_url: str) -> N
                 "status": "done" if exit_code == 0 else "failed",
                 "exit_code": exit_code,
                 "k6_output": output,
-                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "finished_at": finished_at,
+                "snmp": snmp,
             })
 
 
