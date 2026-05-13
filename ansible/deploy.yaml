@@ -214,7 +214,7 @@
         mode: "0644"
         content: |
           NODE1_HOST=127.0.0.1
-          NODE2_HOST={{ hostvars['node2']['private_ip'] }}
+          NODE2_HOST={{ hostvars['node2'].get('private_ip', '') }}
           SNMP_COMMUNITY=public
           SNMP_POLL_INTERVAL=5
           LOADTEST_SCRIPT_DIR={{ loadtest_dir }}
