@@ -101,7 +101,21 @@ install_ansible() {
   fi
 }
 
-# ── 4. 安裝 Go（供 node2 worker 編譯用）────────────────
+# ── 4. 安裝 rsync（供 ansible.posix.synchronize 使用）──
+install_rsync() {
+  if command -v rsync >/dev/null 2>&1; then
+    log "rsync already installed: $(rsync --version | head -1)"
+    return
+  fi
+
+  require_sudo
+  log "Install rsync"
+  run_sudo apt-get update
+  run_sudo apt-get install -y rsync
+  log "Installed: $(rsync --version | head -1)"
+}
+
+# ── 5. 安裝 Go（供 node2 worker 編譯用）────────────────
 install_go() {
   if command -v go >/dev/null 2>&1; then
     log "go already installed: $(go version)"
@@ -203,6 +217,7 @@ check_hosts_ini
 check_python
 setup_venv
 install_ansible
+install_rsync
 install_go
 setup_ansible_dir
 run_ping_test

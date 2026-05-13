@@ -16,6 +16,7 @@
       ansible.builtin.apt:
         name:
           - redis-server
+          - rsync
           - snmp
           - snmpd
           - net-tools
