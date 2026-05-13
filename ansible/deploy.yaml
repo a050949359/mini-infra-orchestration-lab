@@ -112,6 +112,7 @@
         content: |
           JOB_DB_PATH={{ sqlite_db_path }}
           REDIS_URL={{ redis_url }}
+          SNMP_REDIS_URL={{ snmp_redis_url }}
           QUEUE_STREAM_KEY={{ queue_stream_key }}
           STATUS_STREAM_KEY={{ status_stream_key }}
           STATUS_GROUP={{ status_consumer_group }}
@@ -336,6 +337,7 @@
           QUEUE_BLOCK_MS={{ worker_queue_block_ms }}
           STATUS_STREAM_KEY={{ status_stream_key }}
           STATUS_FAILED_KEY={{ status_failed_key }}
+          STATUS_DEAD_KEY={{ status_dead_key }}
           STATUS_RETRY_INTERVAL_MS={{ worker_status_retry_interval_ms }}
 
     - name: Create systemd service for node2 worker

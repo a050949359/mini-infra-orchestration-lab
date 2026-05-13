@@ -30,6 +30,7 @@ worker_status_retry_interval_ms: 30000
 
 status_stream_key: jobs:status
 status_failed_key: jobs:status:failed
+status_dead_key: jobs:status:dead
 status_consumer_service_name: mini-orch-status-consumer
 status_consumer_group: status-updaters
 status_consumer_block_ms: 5000
