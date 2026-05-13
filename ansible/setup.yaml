@@ -51,6 +51,16 @@
         line: "protected-mode yes"
       notify: Restart Redis
 
+    - name: Set timezone to Asia/Taipei
+      ansible.builtin.command: timedatectl set-timezone Asia/Taipei
+      changed_when: false
+
+    - name: Enable and start systemd-timesyncd
+      ansible.builtin.service:
+        name: systemd-timesyncd
+        enabled: true
+        state: started
+
     - name: Enable and start SNMP daemon
       ansible.builtin.service:
         name: snmpd
