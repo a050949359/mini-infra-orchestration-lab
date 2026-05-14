@@ -1,16 +1,16 @@
 ---
 
-api_env_src: ../etc/node1/env/mini-orch-api.env
+api_env_src: ../config/node1/mini-orch-api.env
 api_env_dest: /etc/mini-orch-api.env
-snmp_env_src: ../etc/node1/env/mini-orch-snmp.env
+snmp_env_src: ../config/node1/mini-orch-snmp.env
 snmp_env_dest: /etc/mini-orch-snmp.env
-loadtest_env_src: ../etc/node1/env/mini-orch-loadtest.env
+loadtest_env_src: ../config/node1/mini-orch-loadtest.env
 loadtest_env_dest: /etc/mini-orch-loadtest.env
-status_consumer_env_src: ../etc/node1/env/mini-orch-status-consumer.env
+status_consumer_env_src: ../config/node1/mini-orch-status-consumer.env
 status_consumer_env_dest: /etc/mini-orch-status-consumer.env
-publish_failed_checker_env_src: ../etc/node1/env/mini-orch-publish-failed-checker.env
+publish_failed_checker_env_src: ../config/node1/mini-orch-publish-failed-checker.env
 publish_failed_checker_env_dest: /etc/mini-orch-publish-failed-checker.env
-worker_env_src: ../etc/node2/env/mini-orch-worker.env
+worker_env_src: ../config/node2/mini-orch-worker.env
 worker_env_dest: /etc/mini-orch-worker.env
 
 api_app_dir: /opt/mini-orch

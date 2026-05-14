@@ -45,18 +45,6 @@
         - "{{ api_service_name }}"
       failed_when: false
 
-    - name: Kill any process listening on port 5000
-      ansible.builtin.shell: |
-        set -o pipefail
-        pids=$(ss -ltnp '( sport = :5000 )' | awk -F 'pid=' 'NR>1 && NF>1 {split($2,a,",|"); print a[1]}' | sort -u)
-        if [[ -n "$pids" ]]; then
-          kill -9 $pids
-        fi
-      args:
-        executable: /bin/bash
-      changed_when: false
-      failed_when: false
-
     # ── Directories ───────────────────────────────────────────────────────
     - name: Ensure log directory exists
       ansible.builtin.file:
