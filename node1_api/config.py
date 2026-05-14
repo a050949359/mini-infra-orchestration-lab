@@ -17,7 +17,6 @@ class ConsumerConfig:
     db_path: str
     redis_url: str
     status_stream_key: str
-    queue_stream_key: str
     group: str
     consumer: str
     block_ms: int
@@ -45,7 +44,6 @@ def load_consumer_config() -> ConsumerConfig:
         db_path=os.getenv("JOB_DB_PATH", "/tmp/node1_jobs.db"),
         redis_url=os.getenv("REDIS_URL", ""),
         status_stream_key=os.getenv("STATUS_STREAM_KEY", "jobs:status"),
-        queue_stream_key=os.getenv("QUEUE_STREAM_KEY", "jobs:stream"),
         group=os.getenv("STATUS_GROUP", "status-updaters"),
         consumer=os.getenv("STATUS_CONSUMER", "node1-status-consumer"),
         block_ms=int(os.getenv("STATUS_BLOCK_MS", "5000")),

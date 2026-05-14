@@ -39,7 +39,8 @@ func main() {
 		cancel()
 	}()
 
-	go retryFailedStatus(ctx, rdbLocal, rdbNode1, cfg.worker.failedStatusKey, cfg.worker.deadStatusKey, cfg.worker.fallbackFile, cfg.worker.statusStreamKey, cfg.retryInterval)
+	go retryFailedStatus(ctx, rdbLocal, rdbNode1, cfg.worker.failedStatusKey, cfg.worker.fallbackFile, cfg.worker.statusStreamKey, cfg.retryInterval)
+	go replayFallbackFile(ctx, rdbNode1, cfg.worker.fallbackFile, cfg.worker.statusStreamKey, cfg.retryInterval)
 
 	var wg sync.WaitGroup
 	for i := 0; i < cfg.workerCount; i++ {

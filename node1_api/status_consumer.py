@@ -45,9 +45,8 @@ def main() -> None:
     log.info("redis connected")
 
     ensure_group(rdb, cfg.status_stream_key, cfg.group)
-    ensure_group(rdb, cfg.queue_stream_key, cfg.group, start_id="$")
-    log.info("consumer started: status_stream=%s queue_stream=%s group=%s consumer=%s",
-             cfg.status_stream_key, cfg.queue_stream_key, cfg.group, cfg.consumer)
+    log.info("consumer started: status_stream=%s group=%s consumer=%s",
+             cfg.status_stream_key, cfg.group, cfg.consumer)
 
     db = sqlite3.connect(cfg.db_path)
 
@@ -66,7 +65,7 @@ def main() -> None:
             results = rdb.xreadgroup(
                 groupname=cfg.group,
                 consumername=cfg.consumer,
-                streams={cfg.status_stream_key: ">", cfg.queue_stream_key: ">"},
+                streams={cfg.status_stream_key: ">"},
                 count=10,
                 block=cfg.block_ms,
             )
@@ -81,22 +80,6 @@ def main() -> None:
         for stream_name, messages in results:
             for msg_id, fields in messages:
                 job_id = fields.get("job_id", "")
-
-                if stream_name == cfg.queue_stream_key:
-                    try:
-                        cur = db.execute(
-                            "UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ? AND status = 'queued'",
-                            (utc_now(), job_id),
-                        )
-                        db.commit()
-                    except sqlite3.Error as e:
-                        log.error("db update failed msg_id=%s job_id=%s: %s", msg_id, job_id, e)
-                        continue
-                    if cur.rowcount == 0:
-                        log.warning("job not found msg_id=%s job_id=%s", msg_id, job_id)
-                    rdb.xack(cfg.queue_stream_key, cfg.group, msg_id)
-                    log.info("updated job_id=%s status=processing", job_id)
-                    continue
 
                 status = fields.get("status", "")
                 if status not in ALLOWED_STATUSES:
