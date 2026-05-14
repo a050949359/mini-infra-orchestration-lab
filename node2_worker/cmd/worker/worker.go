@@ -181,8 +181,10 @@ func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, fa
 
 				default:
 					log.Printf("retry: unknown status job_id=%s status=%s, skipping", entry.JobID, entry.Status)
+					break
 				}
-				break
+
+				time.Sleep(500 * time.Millisecond)
 			}
 		}
 	}

@@ -98,45 +98,19 @@
         virtualenv: "{{ api_venv_path }}"
 
     # ── Environment files ─────────────────────────────────────────────────
-    - name: Create API environment file
+    - name: Upload node1 environment files
       ansible.builtin.copy:
-        src: "{{ api_env_src }}"
-        dest: "{{ api_env_dest }}"
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
         owner: root
         group: root
         mode: "0644"
-
-    - name: Create SNMP collector environment file
-      ansible.builtin.copy:
-        src: "{{ snmp_env_src }}"
-        dest: "{{ snmp_env_dest }}"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Create loadtest service environment file
-      ansible.builtin.copy:
-        src: "{{ loadtest_env_src }}"
-        dest: "{{ loadtest_env_dest }}"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Create status consumer environment file
-      ansible.builtin.copy:
-        src: "{{ status_consumer_env_src }}"
-        dest: "{{ status_consumer_env_dest }}"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Create publish_failed_checker environment file
-      ansible.builtin.copy:
-        src: "{{ publish_failed_checker_env_src }}"
-        dest: "{{ publish_failed_checker_env_dest }}"
-        owner: root
-        group: root
-        mode: "0644"
+      loop:
+        - { src: "{{ api_env_src }}",                    dest: "{{ api_env_dest }}" }
+        - { src: "{{ snmp_env_src }}",                   dest: "{{ snmp_env_dest }}" }
+        - { src: "{{ loadtest_env_src }}",               dest: "{{ loadtest_env_dest }}" }
+        - { src: "{{ status_consumer_env_src }}",        dest: "{{ status_consumer_env_dest }}" }
+        - { src: "{{ publish_failed_checker_env_src }}", dest: "{{ publish_failed_checker_env_dest }}" }
 
     # ── Service unit files ────────────────────────────────────────────────
     - name: Create systemd service for node1 API

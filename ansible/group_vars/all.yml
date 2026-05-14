@@ -13,18 +13,19 @@ publish_failed_checker_env_dest: /etc/mini-orch-publish-failed-checker.env
 worker_env_src: ../config/node2/mini-orch-worker.env
 worker_env_dest: /etc/mini-orch-worker.env
 
+api_venv_path: /opt/mini-orch-venv
 api_app_dir: /opt/mini-orch
 loadtest_dir: /opt/mini-orch-loadtest
-loadtest_service_name: mini-orch-loadtest
 
-snmp_collector_service_name: mini-orch-snmp-collector
-
-api_venv_path: /opt/mini-orch-venv
 api_service_name: mini-orch-api
+loadtest_service_name: mini-orch-loadtest
+snmp_collector_service_name: mini-orch-snmp-collector
+status_consumer_service_name: mini-orch-status-consumer
 
 api_data_dir: /var/lib/mini-orch
 sqlite_db_path: /var/lib/mini-orch/jobs.db
 sqlite_backup_dir: /var/backups/mini-orch
+
 api_log_file: /var/log/mini-orch/api.log
 status_consumer_log_file: /var/log/mini-orch/status_consumer.log
 snmp_collector_log_file: /var/log/mini-orch/snmp_collector.log
@@ -37,4 +38,3 @@ worker_service_name: mini-orch-worker
 
 worker_log_file: /var/log/mini-orch/worker.log
 
-status_consumer_service_name: mini-orch-status-consumer
