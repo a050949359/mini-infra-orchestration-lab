@@ -1,4 +1,9 @@
 ---
+# 完整重部署 playbook：涵蓋 node1（Flask API 及相關服務）與 node2（Go worker）。
+# 每次執行均為完整流程：停止服務 → 備份資料 → 清除舊檔 → 上傳新版 → 重啟服務。
+# 此 playbook 為破壞性操作，不具冪等性。
+# 若需 patch 特定功能或零停機更新，請另外撰寫獨立 playbook。
+
 - name: Deploy node1 API service
   hosts: node1
   become: true
@@ -42,8 +47,6 @@
         - "{{ snmp_collector_service_name }}"
         - "{{ status_consumer_service_name }}"
         - "{{ api_service_name }}"
-        - node1-api
-        - node1-api.service
       failed_when: false
 
     - name: Kill any process listening on port 5000
@@ -166,7 +169,6 @@
 
           [Install]
           WantedBy=multi-user.target
-      notify: Restart node1 API
 
     - name: Create systemd service for status consumer
       ansible.builtin.copy:
@@ -189,7 +191,6 @@
 
           [Install]
           WantedBy=multi-user.target
-      notify: Restart status consumer
 
     - name: Create systemd service for SNMP collector
       ansible.builtin.copy:
@@ -212,7 +213,6 @@
 
           [Install]
           WantedBy=multi-user.target
-      notify: Restart SNMP collector
 
     - name: Create systemd service for loadtest API
       ansible.builtin.copy:
@@ -235,7 +235,6 @@
 
           [Install]
           WantedBy=multi-user.target
-      notify: Restart loadtest API
 
     # ── Reload & start ────────────────────────────────────────────────────
     - name: Reload systemd daemon
@@ -246,8 +245,9 @@
       ansible.builtin.systemd:
         name: "{{ item }}"
         enabled: true
-        state: started
+        state: restarted
       loop:
+        - redis-server
         - "{{ api_service_name }}"
         - "{{ status_consumer_service_name }}"
         - "{{ snmp_collector_service_name }}"
@@ -265,29 +265,6 @@
           {{ api_venv_path }}/bin/python3 {{ api_app_dir }}/publish_failed_checker.py'
           >> /var/log/mini-orch/publish_failed_checker.log 2>&1
 
-  handlers:
-    - name: Restart node1 API
-      ansible.builtin.systemd:
-        name: "{{ api_service_name }}"
-        state: restarted
-        daemon_reload: true
-
-    - name: Restart status consumer
-      ansible.builtin.systemd:
-        name: "{{ status_consumer_service_name }}"
-        state: restarted
-
-    - name: Restart loadtest API
-      ansible.builtin.systemd:
-        name: "{{ loadtest_service_name }}"
-        state: restarted
-
-    - name: Restart SNMP collector
-      ansible.builtin.systemd:
-        name: "{{ snmp_collector_service_name }}"
-        state: restarted
-        daemon_reload: true
-
 - name: Deploy node2 stream worker binary
   hosts: node2
   become: true
@@ -298,19 +275,19 @@
     node2_local_redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
 
   tasks:
-    - name: Check worker binary exists on control node
-      delegate_to: localhost
-      become: false
-      ansible.builtin.stat:
-        path: "{{ worker_binary_src }}"
-      register: worker_binary_stat
+    # ── Stop service ──────────────────────────────────────────────────────
+    - name: Stop node2 worker before redeploy
+      ansible.builtin.systemd:
+        name: "{{ worker_service_name }}"
+        state: stopped
+      failed_when: false
 
-    - name: Fail if worker binary is missing
+    - name: Build worker binary
       delegate_to: localhost
       become: false
-      ansible.builtin.fail:
-        msg: "Missing worker binary: {{ worker_binary_src }}. Build it first: ./node2_worker/build.sh"
-      when: not worker_binary_stat.stat.exists
+      ansible.builtin.command:
+        cmd: ./build.sh
+        chdir: "{{ playbook_dir }}/../node2_worker"
 
     - name: Upload node2 worker binary
       ansible.builtin.copy:
@@ -360,21 +337,14 @@
 
           [Install]
           WantedBy=multi-user.target
-      notify: Restart node2 worker
 
-    - name: Reload systemd daemon
+    - name: Ensure node2 services enabled and started
       ansible.builtin.systemd:
-        daemon_reload: true
-
-    - name: Ensure node2 worker service enabled and started
-      ansible.builtin.systemd:
-        name: "{{ worker_service_name }}"
+        name: "{{ item }}"
         enabled: true
-        state: started
-
-  handlers:
-    - name: Restart node2 worker
-      ansible.builtin.systemd:
-        name: "{{ worker_service_name }}"
         state: restarted
         daemon_reload: true
+      loop:
+        - redis-server
+        - "{{ worker_service_name }}"
+
