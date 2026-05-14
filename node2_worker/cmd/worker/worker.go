@@ -22,6 +22,8 @@ type failedEntry struct {
 func publishStatus(ctx context.Context, rdb *redis.Client, stream, jobID, status string) error {
 	return rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: stream,
+		MaxLen: 50000,
+		Approx: true,
 		Values: map[string]any{
 			"job_id": jobID,
 			"status": status,

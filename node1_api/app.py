@@ -111,6 +111,8 @@ def create_app() -> Flask:
             stream_entry_id = get_redis().xadd(
                 app.config["QUEUE_STREAM_KEY"],
                 stream_message,
+                maxlen=50000,
+                approximate=True,
             )
         except redis.RedisError as exc:
             failed_at = utc_now()
