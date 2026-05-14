@@ -117,6 +117,9 @@ func runWorker(ctx context.Context, rdbNode1, rdbLocal *redis.Client, cfg appCon
 	}
 }
 
+// TODO: force_fail entries re-pushed within the same tick can be immediately re-popped,
+// causing all 3 retries to exhaust in a single interval. Fix by collecting entries to
+// re-push after the inner loop drains the list, so each retry waits for the next tick.
 func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, failedKey, fallbackFile, statusStream string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

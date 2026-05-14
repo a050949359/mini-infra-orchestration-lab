@@ -293,14 +293,16 @@ def create_app() -> Flask:
         global_raw = rdb.hgetall("worker:stats")
         global_stats = {k: int(v) for k, v in global_raw.items()}
 
-        try:
-            pending = rdb.xlen(app.config["QUEUE_STREAM_KEY"])
-        except redis.RedisError:
-            pending = None
+        db = get_db()
+        status_rows = db.execute(
+            "SELECT status, COUNT(*) AS cnt FROM jobs GROUP BY status"
+        ).fetchall()
+        by_status = {row["status"]: row["cnt"] for row in status_rows}
 
         result: dict[str, Any] = {
             "global": global_stats,
-            "queue_pending": pending,
+            "by_status": by_status,
+            "queue_pending": by_status.get("queued", 0) + by_status.get("processing", 0),
         }
 
         run_id = request.args.get("run_id")
