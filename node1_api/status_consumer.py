@@ -85,7 +85,7 @@ def main() -> None:
                 if stream_name == cfg.queue_stream_key:
                     try:
                         cur = db.execute(
-                            "UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ?",
+                            "UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ? AND status = 'queued'",
                             (utc_now(), job_id),
                         )
                         db.commit()
