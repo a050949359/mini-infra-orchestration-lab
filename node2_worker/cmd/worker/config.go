@@ -33,6 +33,7 @@ type workerConfig struct {
 	statusStreamKey string
 	failedStatusKey string
 	deadStatusKey   string
+	fallbackFile  string
 	processDelay    time.Duration
 }
 
@@ -72,6 +73,7 @@ func loadConfig() appConfig {
 			statusStreamKey: getenv("STATUS_STREAM_KEY", "jobs:status"),
 			failedStatusKey: getenv("STATUS_FAILED_KEY", "jobs:status:failed"),
 			deadStatusKey:   getenv("STATUS_DEAD_KEY", "jobs:status:dead"),
+			fallbackFile:  getenv("FALLBACK_FILE", "/var/log/mini-orch/dead_letter.jsonl"),
 			processDelay:    time.Duration(getenvInt("WORKER_PROCESS_SLEEP_MS", 5000)) * time.Millisecond,
 		},
 	}

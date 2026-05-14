@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-const maxStatusRetries = 3
+const maxRetries = 3
 
 type failedEntry struct {
 	JobID   string `json:"job_id"`
@@ -31,49 +32,73 @@ func publishStatus(ctx context.Context, rdb *redis.Client, stream, jobID, status
 	}).Err()
 }
 
+func appendFallbackFile(path string, data []byte) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("fallback file open failed path=%s: %v", path, err)
+		return
+	}
+	defer f.Close()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		log.Printf("fallback file write failed path=%s: %v", path, err)
+	}
+}
+
+func publishTerminal(ctx context.Context, rdbNode1, rdbLocal *redis.Client, statusStreamKey, fallbackFile, deadKey, jobID, status string, entry failedEntry) {
+	err := publishStatus(ctx, rdbNode1, statusStreamKey, jobID, status)
+	if err != nil {
+		log.Printf("publish %s failed job_id=%s, saving to file: %v", status, jobID, err)
+
+		data, marshalErr := json.Marshal(entry)
+		if marshalErr != nil {
+			log.Printf("marshal failed job_id=%s: %v", jobID, marshalErr)
+			return
+		}
+
+		appendFallbackFile(fallbackFile, data)
+		return
+	}
+
+	if status == "dead" {
+		data, _ := json.Marshal(entry)
+		if pushErr := rdbLocal.RPush(ctx, deadKey, string(data)).Err(); pushErr != nil {
+			log.Printf("dead key push failed job_id=%s, saving to file: %v", entry.JobID, pushErr)
+			appendFallbackFile(fallbackFile, data)
+		}
+	}
+}
+
 func processMessage(ctx context.Context, rdbNode1, rdbLocal *redis.Client, msg redis.XMessage, cfg workerConfig, consumer string) {
 	sm, err := parseStreamMessage(msg)
 	if err != nil {
-		log.Printf("parse message failed id=%s: %v, discarding", msg.ID, err)
+		log.Printf("parse message failed id=%s: %v, moving to dead", msg.ID, err)
+		jobID, _ := msg.Values["job_id"].(string)
+		publishTerminal(ctx, rdbNode1, rdbLocal, cfg.statusStreamKey, cfg.fallbackFile, cfg.deadStatusKey, jobID, "dead", failedEntry{JobID: jobID, Status: "dead"})
 		if ackErr := rdbNode1.XAck(ctx, cfg.streamKey, cfg.group, msg.ID).Err(); ackErr != nil {
 			log.Printf("xack failed id=%s: %v", msg.ID, ackErr)
 		}
 		return
 	}
 
-	log.Printf("processing message id=%s job_id=%s type=%s priority=%d user_id=%d action=%s consumer=%s",
-		msg.ID, sm.JobID, sm.Type, sm.Priority, sm.Payload.UserID, sm.Payload.Action, consumer)
-
-	if err := publishStatus(ctx, rdbNode1, cfg.statusStreamKey, sm.JobID, "processing"); err != nil {
-		log.Printf("publish processing failed job_id=%s: %v", sm.JobID, err)
-		return // 不 XACK，讓 PEL reclaim
+	if ackErr := rdbNode1.XAck(ctx, cfg.streamKey, cfg.group, msg.ID).Err(); ackErr != nil {
+		log.Printf("xack failed id=%s: %v", msg.ID, ackErr)
 	}
+
+	log.Printf("processing id=%s job_id=%s type=%s priority=%d user_id=%d action=%s consumer=%s",
+		msg.ID, sm.JobID, sm.Type, sm.Priority, sm.Payload.UserID, sm.Payload.Action, consumer)
 
 	if strings.Contains(sm.Payload.Action, "force_fail") {
 		log.Printf("simulated failure job_id=%s action=%s", sm.JobID, sm.Payload.Action)
-		if err := publishStatus(ctx, rdbNode1, cfg.statusStreamKey, sm.JobID, "failed:force_fail"); err != nil {
-			log.Printf("publish failed:force_fail error job_id=%s: %v", sm.JobID, err)
-		}
-		if err := rdbNode1.XAck(ctx, cfg.streamKey, cfg.group, msg.ID).Err(); err != nil {
-			log.Printf("xack failed id=%s: %v", msg.ID, err)
-		}
-		return
-	}
-
-	time.Sleep(cfg.processDelay)
-
-	if err := publishStatus(ctx, rdbNode1, cfg.statusStreamKey, sm.JobID, "done"); err != nil {
-		log.Printf("publish done failed job_id=%s, saving to local fallback: %v", sm.JobID, err)
-		entry, marshalErr := json.Marshal(failedEntry{JobID: sm.JobID, Status: "done"})
+		entry := failedEntry{JobID: sm.JobID, Status: "failed:force_fail"}
+		data, marshalErr := json.Marshal(entry)
 		if marshalErr != nil {
-			log.Printf("fallback marshal failed job_id=%s: %v", sm.JobID, marshalErr)
-		} else if pushErr := rdbLocal.RPush(ctx, cfg.failedStatusKey, string(entry)).Err(); pushErr != nil {
-			log.Printf("fallback push failed job_id=%s: %v", sm.JobID, pushErr)
+			log.Printf("force_fail marshal failed job_id=%s: %v", sm.JobID, marshalErr)
+		} else if pushErr := rdbLocal.RPush(ctx, cfg.failedStatusKey, string(data)).Err(); pushErr != nil {
+			log.Printf("force_fail rpush failed job_id=%s: %v", sm.JobID, pushErr)
 		}
-	}
-
-	if err := rdbNode1.XAck(ctx, cfg.streamKey, cfg.group, msg.ID).Err(); err != nil {
-		log.Printf("xack failed id=%s: %v", msg.ID, err)
+	} else {
+		time.Sleep(cfg.processDelay)
+		publishTerminal(ctx, rdbNode1, rdbLocal, cfg.statusStreamKey, cfg.fallbackFile, cfg.deadStatusKey, sm.JobID, "done", failedEntry{JobID: sm.JobID, Status: "done"})
 	}
 }
 
@@ -98,7 +123,7 @@ func runWorker(ctx context.Context, rdbNode1, rdbLocal *redis.Client, cfg appCon
 			if err == redis.Nil || ctx.Err() != nil {
 				continue
 			}
-			log.Printf("xreadgroup error (consumer=%s): %v", consumer, err)
+			log.Printf("xreadgroup error consumer=%s: %v", consumer, err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -111,7 +136,7 @@ func runWorker(ctx context.Context, rdbNode1, rdbLocal *redis.Client, cfg appCon
 	}
 }
 
-func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, failedKey, deadKey, statusStream string, interval time.Duration) {
+func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, failedKey, deadKey, fallbackFile, statusStream string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -128,26 +153,22 @@ func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, fa
 					log.Printf("retry: lpop failed: %v", err)
 					break
 				}
+
 				var entry failedEntry
 				if err := json.Unmarshal([]byte(val), &entry); err != nil {
 					log.Printf("retry: unmarshal failed val=%s: %v", val, err)
 					continue
 				}
-				if err := publishStatus(ctx, rdbNode1, statusStream, entry.JobID, entry.Status); err != nil {
+
+				switch entry.Status {
+				case "failed:force_fail":
 					entry.Retries++
-					if entry.Retries >= maxStatusRetries {
-						log.Printf("retry: max retries reached job_id=%s, publishing dead", entry.JobID)
-						if deadErr := publishStatus(ctx, rdbNode1, statusStream, entry.JobID, "dead"); deadErr != nil {
-							log.Printf("retry: dead publish failed job_id=%s: %v", entry.JobID, deadErr)
-						}
-						updated, marshalErr := json.Marshal(entry)
-						if marshalErr == nil {
-							if pushErr := rdbLocal.RPush(ctx, deadKey, string(updated)).Err(); pushErr != nil {
-								log.Printf("retry: dead letter push failed job_id=%s: %v", entry.JobID, pushErr)
-							}
-						}
+					if entry.Retries >= maxRetries {
+						log.Printf("retry: max retries reached job_id=%s, escalating to dead", entry.JobID)
+						deadEntry := failedEntry{JobID: entry.JobID, Status: "dead", Retries: entry.Retries}
+						publishTerminal(ctx, rdbNode1, rdbLocal, statusStream, fallbackFile, deadKey, entry.JobID, "dead", deadEntry)
 					} else {
-						log.Printf("retry: xadd failed job_id=%s (attempt %d/%d): %v", entry.JobID, entry.Retries, maxStatusRetries, err)
+						log.Printf("retry: re-queuing force_fail job_id=%s attempt=%d/%d", entry.JobID, entry.Retries, maxRetries)
 						updated, marshalErr := json.Marshal(entry)
 						if marshalErr != nil {
 							log.Printf("retry: marshal failed job_id=%s: %v", entry.JobID, marshalErr)
@@ -157,9 +178,11 @@ func retryFailedStatus(ctx context.Context, rdbLocal, rdbNode1 *redis.Client, fa
 							log.Printf("retry: re-queue failed job_id=%s: %v", entry.JobID, pushErr)
 						}
 					}
-					break
+
+				default:
+					log.Printf("retry: unknown status job_id=%s status=%s, skipping", entry.JobID, entry.Status)
 				}
-				log.Printf("retry: status recovered job_id=%s status=%s", entry.JobID, entry.Status)
+				break
 			}
 		}
 	}

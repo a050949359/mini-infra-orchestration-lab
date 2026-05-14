@@ -15,6 +15,11 @@ api_env_file: /etc/mini-orch-api.env
 api_data_dir: /var/lib/mini-orch
 sqlite_db_path: /var/lib/mini-orch/jobs.db
 sqlite_backup_dir: /var/backups/mini-orch
+api_log_file: /var/log/mini-orch/api.log
+status_consumer_log_file: /var/log/mini-orch/status_consumer.log
+snmp_collector_log_file: /var/log/mini-orch/snmp_collector.log
+loadtest_log_file: /var/log/mini-orch/loadtest.log
+publish_failed_checker_log_file: /var/log/mini-orch/publish_failed_checker.log
 
 queue_stream_key: jobs:stream
 
@@ -23,6 +28,7 @@ worker_binary_dest: /usr/bin/mini-orch-worker
 worker_service_name: mini-orch-worker
 worker_env_file: /etc/mini-orch-worker.env
 worker_log_file: /var/log/mini-orch/worker.log
+worker_fallback_file: /var/log/mini-orch/fallback.jsonl
 worker_queue_group: mini-orch-workers
 worker_queue_batch_size: 10
 worker_queue_block_ms: 5000
@@ -32,5 +38,9 @@ status_stream_key: jobs:status
 status_failed_key: jobs:status:failed
 status_dead_key: jobs:status:dead
 status_consumer_service_name: mini-orch-status-consumer
+status_consumer_env_file: /etc/mini-orch-status-consumer.env
 status_consumer_group: status-updaters
 status_consumer_block_ms: 5000
+
+publish_failed_checker_env_file: /etc/mini-orch-publish-failed-checker.env
+checker_stuck_threshold_sec: 300

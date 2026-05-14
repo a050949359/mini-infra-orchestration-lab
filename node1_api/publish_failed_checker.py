@@ -67,7 +67,7 @@ def main() -> None:
         }
 
         try:
-            rdb.xadd(cfg.queue_stream_key, stream_message)
+            rdb.xadd(cfg.queue_stream_key, stream_message, maxlen=50000, approximate=True)
         except redis.RedisError as e:
             log.error("xadd failed job_id=%s: %s", job_id, e)
             continue

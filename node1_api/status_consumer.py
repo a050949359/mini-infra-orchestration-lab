@@ -16,13 +16,12 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-ALLOWED_STATUSES = {"queued", "processing", "done", "failed", "failed:force_fail", "publish_failed", "dead"}
+ALLOWED_STATUSES = {"queued", "processing", "done", "failed", "publish_failed", "dead"}
 WORKER_STATS_KEY = "worker:stats"
 STAT_MAP = {
-    "done":             "processed",
-    "failed":           "failed",
-    "failed:force_fail": "failed:force_fail",
-    "dead":             "dead",
+    "done":  "processed",
+    "failed": "failed",
+    "dead":  "dead",
 }
 
 
@@ -30,9 +29,9 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def ensure_group(rdb: redis.Redis, stream: str, group: str) -> None:
+def ensure_group(rdb: redis.Redis, stream: str, group: str, start_id: str = "0") -> None:
     try:
-        rdb.xgroup_create(stream, group, id="0", mkstream=True)
+        rdb.xgroup_create(stream, group, id=start_id, mkstream=True)
     except redis.ResponseError as e:
         if "BUSYGROUP" not in str(e):
             raise
@@ -46,7 +45,9 @@ def main() -> None:
     log.info("redis connected")
 
     ensure_group(rdb, cfg.status_stream_key, cfg.group)
-    log.info("consumer started: stream=%s group=%s consumer=%s", cfg.status_stream_key, cfg.group, cfg.consumer)
+    ensure_group(rdb, cfg.queue_stream_key, cfg.group, start_id="$")
+    log.info("consumer started: status_stream=%s queue_stream=%s group=%s consumer=%s",
+             cfg.status_stream_key, cfg.queue_stream_key, cfg.group, cfg.consumer)
 
     db = sqlite3.connect(cfg.db_path)
 
@@ -65,7 +66,7 @@ def main() -> None:
             results = rdb.xreadgroup(
                 groupname=cfg.group,
                 consumername=cfg.consumer,
-                streams={cfg.status_stream_key: ">"},
+                streams={cfg.status_stream_key: ">", cfg.queue_stream_key: ">"},
                 count=10,
                 block=cfg.block_ms,
             )
@@ -77,21 +78,36 @@ def main() -> None:
         if not results:
             continue
 
-        for _stream, messages in results:
+        for stream_name, messages in results:
             for msg_id, fields in messages:
                 job_id = fields.get("job_id", "")
-                status = fields.get("status", "")
 
+                if stream_name == cfg.queue_stream_key:
+                    try:
+                        cur = db.execute(
+                            "UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ?",
+                            (utc_now(), job_id),
+                        )
+                        db.commit()
+                    except sqlite3.Error as e:
+                        log.error("db update failed msg_id=%s job_id=%s: %s", msg_id, job_id, e)
+                        continue
+                    if cur.rowcount == 0:
+                        log.warning("job not found msg_id=%s job_id=%s", msg_id, job_id)
+                    rdb.xack(cfg.queue_stream_key, cfg.group, msg_id)
+                    log.info("updated job_id=%s status=processing", job_id)
+                    continue
+
+                status = fields.get("status", "")
                 if status not in ALLOWED_STATUSES:
                     log.warning("unknown status, skipping msg_id=%s job_id=%s status=%s", msg_id, job_id, status)
                     rdb.xack(cfg.status_stream_key, cfg.group, msg_id)
                     continue
 
-                db_status = "failed" if status == "failed:force_fail" else status
                 try:
                     cur = db.execute(
                         "UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?",
-                        (db_status, utc_now(), job_id),
+                        (status, utc_now(), job_id),
                     )
                     db.commit()
                 except sqlite3.Error as e:
