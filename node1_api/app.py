@@ -319,6 +319,191 @@ def create_app() -> Flask:
 
         return jsonify(result)
 
+    _STATUS_COLOR = {
+        "done": "#3fb950",
+        "queued": "#e3b341",
+        "processing": "#58a6ff",
+        "failed": "#f85149",
+        "dead": "#bc8cff",
+        "publish_failed": "#f85149",
+    }
+    _PB_COLOR = {
+        "done": "#3fb950",
+        "processing": "#58a6ff",
+        "queued": "#e3b341",
+        "failed": "#f85149",
+        "dead": "#bc8cff",
+    }
+
+    @app.get("/dashboard")
+    def dashboard() -> Any:
+        from flask import Response
+
+        db = get_db()
+        rdb = get_redis()
+        snmp_rdb = get_snmp_redis()
+
+        # --- job stats ---
+        status_rows = db.execute(
+            "SELECT status, COUNT(*) AS cnt FROM jobs GROUP BY status"
+        ).fetchall()
+        by_status: dict[str, int] = {r["status"]: r["cnt"] for r in status_rows}
+        total_jobs = sum(by_status.values())
+        in_flight = by_status.get("queued", 0) + by_status.get("processing", 0)
+
+        global_raw = rdb.hgetall("worker:stats")
+        global_stats = {k: int(v) for k, v in global_raw.items()}
+
+        # --- run stats ---
+        run_rows = db.execute(
+            "SELECT run_id, status, COUNT(*) AS cnt FROM jobs"
+            " WHERE run_id IS NOT NULL GROUP BY run_id, status"
+        ).fetchall()
+        run_agg: dict[str, dict] = {}
+        for r in run_rows:
+            run_agg.setdefault(r["run_id"], {})[r["status"]] = r["cnt"]
+        runs = []
+        for rid, bs in run_agg.items():
+            t = sum(bs.values())
+            inf = bs.get("queued", 0) + bs.get("processing", 0)
+            runs.append({"run_id": rid, "total": t, "in_flight": inf,
+                         "is_complete": inf == 0 and t > 0, "by_status": bs})
+        runs.sort(key=lambda x: x["total"], reverse=True)
+
+        # --- snmp ---
+        snmp: dict[str, Any] = {}
+        for node in _SNMP_NODES:
+            snap: dict[str, Any] = {}
+            latest_ts: float | None = None
+            for metric in _SNMP_METRICS:
+                key = f"snmp:{node}:{metric}"
+                entries = snmp_rdb.zrevrangebyscore(key, "+inf", "-inf", start=0, num=1, withscores=True)
+                if entries:
+                    member, ts = entries[0]
+                    snap[metric] = float(member.split(":", 1)[1])
+                    if latest_ts is None or ts > latest_ts:
+                        latest_ts = ts
+            if latest_ts is not None:
+                snap["ts"] = datetime.fromtimestamp(latest_ts, timezone.utc).strftime("%H:%M:%S UTC")
+            snmp[node] = snap
+
+        # --- render ---
+        def sc(s: str) -> str:
+            return _STATUS_COLOR.get(s, "#8b949e")
+
+        def stat_rows_html(bs: dict) -> str:
+            lines = []
+            for s in sorted(bs):
+                lines.append(
+                    f'<div class="row"><span class="lbl">{s}</span>'
+                    f'<span style="color:{sc(s)}">{bs[s]}</span></div>'
+                )
+            return "".join(lines)
+
+        def pbar_html(bs: dict, total: int) -> str:
+            segs = []
+            for s in ("done", "processing", "queued", "failed", "dead"):
+                pct = round((bs.get(s, 0) / max(total, 1)) * 100)
+                if pct:
+                    color = _PB_COLOR.get(s, "#8b949e")
+                    segs.append(f'<div style="width:{pct}%;background:{color}"></div>')
+            return "".join(segs)
+
+        stats_html = (
+            f'<div class="row"><span class="lbl">total</span><span>{total_jobs}</span></div>'
+            + stat_rows_html(by_status)
+            + f'<div class="row" style="margin-top:6px"><span class="lbl">in_flight</span>'
+              f'<span style="color:#e3b341">{in_flight}</span></div>'
+        )
+        if global_stats:
+            for k, v in sorted(global_stats.items()):
+                stats_html += (
+                    f'<div class="row"><span class="lbl">worker:{k}</span>'
+                    f'<span style="color:#8b949e">{v}</span></div>'
+                )
+
+        snmp_html_parts = []
+        for node in sorted(snmp):
+            m = snmp[node]
+            mem_pct = (
+                round((1 - m.get("mem_avail_kb", 0) / m["mem_total_kb"]) * 100)
+                if m.get("mem_total_kb")
+                else "-"
+            )
+            cpu = f'{m["cpu_load1"]:.2f}' if "cpu_load1" in m else "-"
+            ts_str = f'<div class="ts">{m["ts"]}</div>' if "ts" in m else ""
+            snmp_html_parts.append(
+                f'<div class="snmp-node"><div class="snmp-title">{node}</div>'
+                f'<div class="row"><span class="lbl">cpu_load1</span><span>{cpu}</span></div>'
+                f'<div class="row"><span class="lbl">mem_used%</span><span>{mem_pct}%</span></div>'
+                f'{ts_str}</div>'
+            )
+        snmp_html = "".join(snmp_html_parts) or '<span class="ts">no data</span>'
+
+        runs_html_parts = []
+        for r in runs:
+            bs = r["by_status"]
+            badge = '<span class="badge-ok">done</span>' if r["is_complete"] else ""
+            detail = stat_rows_html(bs) + (
+                f'<div class="row"><span class="lbl">in_flight</span>'
+                f'<span style="color:#e3b341">{r["in_flight"]}</span></div>'
+            )
+            pb = pbar_html(bs, r["total"])
+            runs_html_parts.append(
+                f'<details><summary style="cursor:pointer;list-style:none">'
+                f'<div class="run-sum">'
+                f'<span class="rid">{r["run_id"]}</span>'
+                f'<span class="lbl">{r["total"]} jobs</span>{badge}'
+                f'</div>'
+                f'<div class="pbar">{pb}</div>'
+                f'</summary>'
+                f'<div style="padding:4px 0 4px 12px;font-size:.85em">{detail}</div>'
+                f'</details>'
+            )
+        runs_html = "".join(runs_html_parts) or '<span class="ts">no runs</span>'
+
+        now_str = utc_now()
+        html = f"""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Mini Orch Dashboard</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:monospace;background:#0f1117;color:#c9d1d9;padding:14px;font-size:14px}}
+h1{{color:#58a6ff;font-size:1.1em;margin-bottom:12px}}
+h3{{color:#79c0ff;font-size:.9em;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em}}
+.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}}
+.card{{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px}}
+.row{{display:flex;justify-content:space-between;padding:2px 0}}
+.lbl{{color:#8b949e}}
+.badge-ok{{background:#1a3a1a;color:#3fb950;font-size:.75em;padding:1px 7px;border-radius:10px;border:1px solid #3fb950}}
+.run-sum{{display:flex;justify-content:space-between;align-items:center;gap:8px}}
+.rid{{color:#58a6ff;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.pbar{{height:6px;background:#21262d;border-radius:3px;display:flex;overflow:hidden;margin:5px 0}}
+.snmp-node{{margin-bottom:10px}}.snmp-node:last-child{{margin-bottom:0}}
+.snmp-title{{color:#79c0ff;margin-bottom:4px}}
+.ts{{color:#484f58;font-size:.8em}}
+details{{padding:4px 0;border-bottom:1px solid #21262d}}
+details:last-child{{border-bottom:none}}
+details summary{{outline:none}}
+details summary::-webkit-details-marker{{display:none}}
+.generated{{color:#484f58;font-size:.75em;text-align:right;margin-top:8px}}
+</style>
+</head>
+<body>
+<h1>Mini Orch Dashboard</h1>
+<div class="grid2">
+  <div class="card"><h3>Job Status</h3>{stats_html}</div>
+  <div class="card"><h3>SNMP Latest</h3>{snmp_html}</div>
+</div>
+<div class="card"><h3>Runs</h3>{runs_html}</div>
+<div class="generated">generated {now_str}</div>
+</body>
+</html>"""
+
+        return Response(html, mimetype="text/html", headers={"X-Frame-Options": "ALLOWALL"})
+
     with app.app_context():
         init_db()
 
