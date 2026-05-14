@@ -8,10 +8,6 @@
   hosts: node1
   become: true
   gather_facts: false
-  vars:
-    redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
-    snmp_redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/1' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/1' }}"
-
   tasks:
     # ── Backup ────────────────────────────────────────────────────────────
     - name: Ensure SQLite backup directory exists
@@ -116,68 +112,43 @@
     # ── Environment files ─────────────────────────────────────────────────
     - name: Create API environment file
       ansible.builtin.copy:
-        dest: "{{ api_env_file }}"
+        src: "{{ api_env_src }}"
+        dest: "{{ api_env_dest }}"
         owner: root
         group: root
         mode: "0644"
-        content: |
-          JOB_DB_PATH={{ sqlite_db_path }}
-          REDIS_URL={{ redis_url }}
-          SNMP_REDIS_URL={{ snmp_redis_url }}
-          QUEUE_STREAM_KEY={{ queue_stream_key }}
 
     - name: Create SNMP collector environment file
       ansible.builtin.copy:
-        dest: "{{ snmp_env_file }}"
+        src: "{{ snmp_env_src }}"
+        dest: "{{ snmp_env_dest }}"
         owner: root
         group: root
         mode: "0644"
-        content: |
-          SNMP_REDIS_URL={{ snmp_redis_url }}
-          NODE1_HOST=127.0.0.1
-          NODE2_HOST={{ hostvars['node2']['private_ip'] | default('') }}
-          SNMP_COMMUNITY=public
-          SNMP_POLL_INTERVAL=5
-          SNMP_RETENTION_HOURS={{ snmp_retention_hours }}
 
     - name: Create loadtest service environment file
       ansible.builtin.copy:
-        dest: "{{ loadtest_env_file }}"
+        src: "{{ loadtest_env_src }}"
+        dest: "{{ loadtest_env_dest }}"
         owner: root
         group: root
         mode: "0644"
-        content: |
-          SNMP_REDIS_URL={{ snmp_redis_url }}
-          LOADTEST_SCRIPT_DIR={{ loadtest_dir }}
-          LOADTEST_PORT={{ loadtest_port }}
-          LOADTEST_BIND_HOST={{ loadtest_bind_host | default('127.0.0.1') }}
 
     - name: Create status consumer environment file
       ansible.builtin.copy:
-        dest: "{{ status_consumer_env_file }}"
+        src: "{{ status_consumer_env_src }}"
+        dest: "{{ status_consumer_env_dest }}"
         owner: root
         group: root
         mode: "0644"
-        content: |
-          JOB_DB_PATH={{ sqlite_db_path }}
-          REDIS_URL={{ redis_url }}
-          STATUS_STREAM_KEY={{ status_stream_key }}
-          QUEUE_STREAM_KEY={{ queue_stream_key }}
-          STATUS_GROUP={{ status_consumer_group }}
-          STATUS_BLOCK_MS={{ status_consumer_block_ms }}
 
     - name: Create publish_failed_checker environment file
       ansible.builtin.copy:
-        dest: "{{ publish_failed_checker_env_file }}"
+        src: "{{ publish_failed_checker_env_src }}"
+        dest: "{{ publish_failed_checker_env_dest }}"
         owner: root
         group: root
         mode: "0644"
-        content: |
-          JOB_DB_PATH={{ sqlite_db_path }}
-          REDIS_URL={{ redis_url }}
-          QUEUE_STREAM_KEY={{ queue_stream_key }}
-          STUCK_JOB_THRESHOLD_SEC={{ checker_stuck_threshold_sec }}
-          LOG_FILE={{ publish_failed_checker_log_file }}
 
     # ── Service unit files ────────────────────────────────────────────────
     - name: Create systemd service for node1 API
@@ -193,7 +164,7 @@
 
           [Service]
           Type=simple
-          EnvironmentFile={{ api_env_file }}
+          EnvironmentFile={{ api_env_dest }}
           WorkingDirectory={{ api_app_dir }}
           ExecStart={{ api_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
           Restart=always
@@ -217,7 +188,7 @@
 
           [Service]
           Type=simple
-          EnvironmentFile={{ status_consumer_env_file }}
+          EnvironmentFile={{ status_consumer_env_dest }}
           WorkingDirectory={{ api_app_dir }}
           ExecStart={{ api_venv_path }}/bin/python3 {{ api_app_dir }}/status_consumer.py
           Restart=always
@@ -241,7 +212,7 @@
 
           [Service]
           Type=simple
-          EnvironmentFile={{ snmp_env_file }}
+          EnvironmentFile={{ snmp_env_dest }}
           WorkingDirectory={{ api_app_dir }}
           ExecStart={{ api_venv_path }}/bin/python3 {{ api_app_dir }}/snmp_collector.py
           Restart=always
@@ -265,7 +236,7 @@
 
           [Service]
           Type=simple
-          EnvironmentFile={{ loadtest_env_file }}
+          EnvironmentFile={{ loadtest_env_dest }}
           WorkingDirectory={{ api_app_dir }}
           ExecStart={{ api_venv_path }}/bin/python3 {{ api_app_dir }}/loadtest_server.py
           Restart=always
@@ -298,7 +269,7 @@
         hour: "*"
         user: root
         job: >-
-          /bin/bash -c 'set -a; source {{ publish_failed_checker_env_file }}; set +a;
+          /bin/bash -c 'set -a; source {{ publish_failed_checker_env_dest }}; set +a;
           {{ api_venv_path }}/bin/python3 {{ api_app_dir }}/publish_failed_checker.py'
           >> $LOG_FILE 2>&1
 
@@ -306,11 +277,6 @@
   hosts: node2
   become: true
   gather_facts: false
-  vars:
-    node1_redis_host: "{{ hostvars['node1']['private_ip'] | default('127.0.0.1') }}"
-    redis_url: "{{ 'redis://:' ~ redis_password ~ '@' ~ node1_redis_host ~ ':6379/0' if (redis_password | length > 0) else 'redis://' ~ node1_redis_host ~ ':6379/0' }}"
-    node2_local_redis_url: "{{ 'redis://:' ~ redis_password ~ '@127.0.0.1:6379/0' if (redis_password | length > 0) else 'redis://127.0.0.1:6379/0' }}"
-
   tasks:
     # ── Stop service ──────────────────────────────────────────────────────
     - name: Stop node2 worker before redeploy
@@ -336,24 +302,11 @@
 
     - name: Create node2 worker environment file
       ansible.builtin.copy:
-        dest: "{{ worker_env_file }}"
+        src: "{{ worker_env_src }}"
+        dest: "{{ worker_env_dest }}"
         owner: root
         group: root
         mode: "0644"
-        content: |
-          REDIS_URL={{ redis_url }}
-          NODE2_REDIS_URL={{ node2_local_redis_url }}
-          WORKER_LOG_FILE={{ worker_log_file }}
-          QUEUE_STREAM_KEY={{ queue_stream_key }}
-          QUEUE_GROUP={{ worker_queue_group }}
-          QUEUE_CONSUMER={{ inventory_hostname }}
-          QUEUE_BATCH_SIZE={{ worker_queue_batch_size }}
-          QUEUE_BLOCK_MS={{ worker_queue_block_ms }}
-          STATUS_STREAM_KEY={{ status_stream_key }}
-          STATUS_FAILED_KEY={{ status_failed_key }}
-          STATUS_DEAD_KEY={{ status_dead_key }}
-          STATUS_RETRY_INTERVAL_MS={{ worker_status_retry_interval_ms }}
-          FALLBACK_FILE={{ worker_fallback_file }}
 
     - name: Create systemd service for node2 worker
       ansible.builtin.copy:
@@ -368,7 +321,7 @@
 
           [Service]
           Type=simple
-          EnvironmentFile={{ worker_env_file }}
+          EnvironmentFile={{ worker_env_dest }}
           ExecStart={{ worker_binary_dest }}
           Restart=always
           RestartSec=3
