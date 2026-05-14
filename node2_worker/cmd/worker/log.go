@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -23,7 +22,7 @@ func setupLogOutput(path string) func() {
 		return func() {}
 	}
 
-	log.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	log.SetOutput(logFile)
 	log.Printf("file logging enabled: %s", path)
 
 	return func() {
