@@ -461,8 +461,12 @@ def create_app() -> Flask:
                     continue
                 if "cpu_load1" in row:
                     cpu_pts.append((ts, row["cpu_load1"]))
-                if row.get("mem_total_kb", 0) > 0 and "mem_avail_kb" in row:
-                    mem_pts.append((ts, (1 - row["mem_avail_kb"] / row["mem_total_kb"]) * 100))
+                total = row.get("mem_total_kb", 0)
+                if total > 0 and "mem_avail_kb" in row:
+                    free = row["mem_avail_kb"]
+                    buf = row.get("mem_buffer_kb", 0)
+                    cached = row.get("mem_cached_kb", 0)
+                    mem_pts.append((ts, (total - free - buf - cached) / total * 100))
             cpu_series[node] = cpu_pts
             mem_series[node] = mem_pts
 
