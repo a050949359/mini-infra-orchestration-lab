@@ -341,7 +341,6 @@ def create_app() -> Flask:
 
         db = get_db()
         rdb = get_redis()
-        snmp_rdb = get_snmp_redis()
 
         # --- job stats ---
         status_rows = db.execute(
@@ -370,22 +369,8 @@ def create_app() -> Flask:
                          "is_complete": inf == 0 and t > 0, "by_status": bs})
         runs.sort(key=lambda x: x["total"], reverse=True)
 
-        # --- snmp ---
-        snmp: dict[str, Any] = {}
-        for node in _SNMP_NODES:
-            snap: dict[str, Any] = {}
-            latest_ts: float | None = None
-            for metric in _SNMP_METRICS:
-                key = f"snmp:{node}:{metric}"
-                entries = snmp_rdb.zrevrangebyscore(key, "+inf", "-inf", start=0, num=1, withscores=True)
-                if entries:
-                    member, ts = entries[0]
-                    snap[metric] = float(member.split(":", 1)[1])
-                    if latest_ts is None or ts > latest_ts:
-                        latest_ts = ts
-            if latest_ts is not None:
-                snap["ts"] = datetime.fromtimestamp(latest_ts, timezone.utc).strftime("%H:%M:%S UTC")
-            snmp[node] = snap
+        # --- snmp (reuse existing get_snmp() 2h history) ---
+        snmp_hist: dict[str, list[dict]] = get_snmp().get_json()["data"]
 
         # --- render ---
         def sc(s: str) -> str:
@@ -409,6 +394,49 @@ def create_app() -> Flask:
                     segs.append(f'<div style="width:{pct}%;background:{color}"></div>')
             return "".join(segs)
 
+        _NODE_COLORS = {"node1": "#58a6ff", "node2": "#f78166"}
+
+        def sparkline(series: dict[str, list[tuple[float, float]]], unit: str = "") -> str:
+            W, H, pl, pr, pt, pb = 280, 72, 30, 6, 6, 16
+            cw, ch = W - pl - pr, H - pt - pb
+            all_ts: list[float] = []
+            all_v: list[float] = []
+            for pts in series.values():
+                for ts, v in pts:
+                    all_ts.append(ts); all_v.append(v)
+            if not all_v:
+                return (f'<svg viewBox="0 0 {W} {H}" width="100%" height="{H}">'
+                        f'<text x="10" y="20" fill="#484f58" font-size="9">no data</text></svg>')
+            ts0, ts1 = min(all_ts), max(all_ts)
+            v0, v1 = min(all_v), max(all_v)
+            vpad = (v1 - v0) * 0.12 or 0.5
+            v0, v1 = v0 - vpad, v1 + vpad
+            tspan, vspan = (ts1 - ts0) or 1, (v1 - v0)
+
+            def px(ts: float) -> float: return pl + (ts - ts0) / tspan * cw
+            def py(v: float) -> float: return pt + (1 - (v - v0) / vspan) * ch
+
+            out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="100%" height="{H}">']
+            for v in (v0, (v0 + v1) / 2, v1):
+                y = py(v)
+                lbl = f"{v:.1f}{unit}"
+                out.append(f'<line x1="{pl}" y1="{y:.1f}" x2="{W-pr}" y2="{y:.1f}" stroke="#21262d" stroke-width="1"/>')
+                out.append(f'<text x="{pl-2}" y="{y+3:.1f}" text-anchor="end" font-size="7.5" fill="#484f58">{lbl}</text>')
+            for node, pts in sorted(series.items()):
+                if len(pts) < 2:
+                    continue
+                color = _NODE_COLORS.get(node, "#8b949e")
+                coords = " ".join(f"{px(ts):.1f},{py(v):.1f}" for ts, v in pts)
+                out.append(f'<polyline points="{coords}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>')
+            lx = pl
+            for node in sorted(series):
+                color = _NODE_COLORS.get(node, "#8b949e")
+                out.append(f'<rect x="{lx}" y="{H-7}" width="12" height="3" rx="1" fill="{color}"/>')
+                out.append(f'<text x="{lx+14}" y="{H-4}" font-size="7.5" fill="#8b949e">{node}</text>')
+                lx += 65
+            out.append('</svg>')
+            return "".join(out)
+
         stats_html = (
             f'<div class="row"><span class="lbl">total</span><span>{total_jobs}</span></div>'
             + stat_rows_html(by_status)
@@ -422,23 +450,26 @@ def create_app() -> Flask:
                     f'<span style="color:#8b949e">{v}</span></div>'
                 )
 
-        snmp_html_parts = []
-        for node in sorted(snmp):
-            m = snmp[node]
-            mem_pct = (
-                round((1 - m.get("mem_avail_kb", 0) / m["mem_total_kb"]) * 100)
-                if m.get("mem_total_kb")
-                else "-"
-            )
-            cpu = f'{m["cpu_load1"]:.2f}' if "cpu_load1" in m else "-"
-            ts_str = f'<div class="ts">{m["ts"]}</div>' if "ts" in m else ""
-            snmp_html_parts.append(
-                f'<div class="snmp-node"><div class="snmp-title">{node}</div>'
-                f'<div class="row"><span class="lbl">cpu_load1</span><span>{cpu}</span></div>'
-                f'<div class="row"><span class="lbl">mem_used%</span><span>{mem_pct}%</span></div>'
-                f'{ts_str}</div>'
-            )
-        snmp_html = "".join(snmp_html_parts) or '<span class="ts">no data</span>'
+        cpu_series: dict[str, list[tuple[float, float]]] = {}
+        mem_series: dict[str, list[tuple[float, float]]] = {}
+        for node, rows in snmp_hist.items():
+            cpu_pts, mem_pts = [], []
+            for row in rows:
+                try:
+                    ts = datetime.fromisoformat(row["ts"]).timestamp()
+                except (KeyError, ValueError):
+                    continue
+                if "cpu_load1" in row:
+                    cpu_pts.append((ts, row["cpu_load1"]))
+                if row.get("mem_total_kb", 0) > 0 and "mem_avail_kb" in row:
+                    mem_pts.append((ts, (1 - row["mem_avail_kb"] / row["mem_total_kb"]) * 100))
+            cpu_series[node] = cpu_pts
+            mem_series[node] = mem_pts
+
+        snmp_html = (
+            f'<div class="snmp-cl">cpu_load1</div>{sparkline(cpu_series)}'
+            f'<div class="snmp-cl" style="margin-top:8px">mem_used %</div>{sparkline(mem_series, unit="%")}'
+        )
 
         runs_html_parts = []
         for r in runs:
@@ -481,8 +512,7 @@ h3{{color:#79c0ff;font-size:.9em;margin-bottom:8px;text-transform:uppercase;lett
 .run-sum{{display:flex;justify-content:space-between;align-items:center;gap:8px}}
 .rid{{color:#58a6ff;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .pbar{{height:6px;background:#21262d;border-radius:3px;display:flex;overflow:hidden;margin:5px 0}}
-.snmp-node{{margin-bottom:10px}}.snmp-node:last-child{{margin-bottom:0}}
-.snmp-title{{color:#79c0ff;margin-bottom:4px}}
+.snmp-cl{{color:#79c0ff;font-size:.8em;margin-bottom:3px}}
 .ts{{color:#484f58;font-size:.8em}}
 details{{padding:4px 0;border-bottom:1px solid #21262d}}
 details:last-child{{border-bottom:none}}
@@ -495,7 +525,7 @@ details summary::-webkit-details-marker{{display:none}}
 <h1>Mini Orch Dashboard</h1>
 <div class="grid2">
   <div class="card"><h3>Job Status</h3>{stats_html}</div>
-  <div class="card"><h3>SNMP Latest</h3>{snmp_html}</div>
+  <div class="card"><h3>SNMP</h3>{snmp_html}</div>
 </div>
 <div class="card"><h3>Runs</h3>{runs_html}</div>
 <div class="generated">generated {now_str}</div>
