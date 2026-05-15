@@ -380,7 +380,7 @@ def create_app() -> Flask:
             lines = []
             for s in sorted(bs):
                 lines.append(
-                    f'<div class="row"><span class="lbl">{s}</span>'
+                    f'<div class="row"><span class="lbl">{escape(s)}</span>'
                     f'<span style="color:{sc(s)}">{bs[s]}</span></div>'
                 )
             return "".join(lines)
@@ -397,7 +397,7 @@ def create_app() -> Flask:
         _NODE_COLORS = {"node1": "#58a6ff", "node2": "#f78166"}
 
         def sparkline(series: dict[str, list[tuple[float, float]]], unit: str = "") -> str:
-            W, H, pl, pr, pt, pb = 280, 72, 30, 6, 6, 16
+            W, H, pl, pr, pt, pb = 280, 120, 30, 6, 6, 18
             cw, ch = W - pl - pr, H - pt - pb
             all_ts: list[float] = []
             all_v: list[float] = []
@@ -432,7 +432,7 @@ def create_app() -> Flask:
             for node in sorted(series):
                 color = _NODE_COLORS.get(node, "#8b949e")
                 out.append(f'<rect x="{lx}" y="{H-7}" width="12" height="3" rx="1" fill="{color}"/>')
-                out.append(f'<text x="{lx+14}" y="{H-4}" font-size="7.5" fill="#8b949e">{node}</text>')
+                out.append(f'<text x="{lx+14}" y="{H-4}" font-size="7.5" fill="#8b949e">{escape(node)}</text>')
                 lx += 65
             out.append('</svg>')
             return "".join(out)
@@ -446,7 +446,7 @@ def create_app() -> Flask:
         if global_stats:
             for k, v in sorted(global_stats.items()):
                 stats_html += (
-                    f'<div class="row"><span class="lbl">worker:{k}</span>'
+                    f'<div class="row"><span class="lbl">worker:{escape(k)}</span>'
                     f'<span style="color:#8b949e">{v}</span></div>'
                 )
 
@@ -467,8 +467,10 @@ def create_app() -> Flask:
             mem_series[node] = mem_pts
 
         snmp_html = (
-            f'<div class="snmp-cl">cpu_load1</div>{sparkline(cpu_series)}'
-            f'<div class="snmp-cl" style="margin-top:8px">mem_used %</div>{sparkline(mem_series, unit="%")}'
+            f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
+            f'<div><div class="snmp-cl">cpu_load1</div>{sparkline(cpu_series)}</div>'
+            f'<div><div class="snmp-cl">mem_used %</div>{sparkline(mem_series, unit="%")}</div>'
+            f'</div>'
         )
 
         runs_html_parts = []
@@ -523,10 +525,8 @@ details summary::-webkit-details-marker{{display:none}}
 </head>
 <body>
 <h1>Mini Orch Dashboard</h1>
-<div class="grid2">
-  <div class="card"><h3>Job Status</h3>{stats_html}</div>
-  <div class="card"><h3>SNMP</h3>{snmp_html}</div>
-</div>
+<div class="card" style="margin-bottom:10px"><h3>SNMP</h3>{snmp_html}</div>
+<div class="card" style="margin-bottom:10px"><h3>Job Status</h3>{stats_html}</div>
 <div class="card"><h3>Runs</h3>{runs_html}</div>
 <div class="generated">generated {now_str}</div>
 </body>
