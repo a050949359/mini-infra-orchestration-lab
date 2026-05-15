@@ -99,18 +99,18 @@
 
     # ── Environment files ─────────────────────────────────────────────────
     - name: Upload node1 environment files
-      ansible.builtin.copy:
+      ansible.builtin.template:
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
         owner: root
         group: root
-        mode: "0644"
+        mode: "0640"
       loop:
-        - { src: "{{ api_env_src }}",                    dest: "{{ api_env_dest }}" }
-        - { src: "{{ snmp_env_src }}",                   dest: "{{ snmp_env_dest }}" }
-        - { src: "{{ loadtest_env_src }}",               dest: "{{ loadtest_env_dest }}" }
-        - { src: "{{ status_consumer_env_src }}",        dest: "{{ status_consumer_env_dest }}" }
-        - { src: "{{ publish_failed_checker_env_src }}", dest: "{{ publish_failed_checker_env_dest }}" }
+        - { src: mini-orch-api.env.j2,                    dest: "{{ api_env_dest }}" }
+        - { src: mini-orch-snmp.env.j2,                   dest: "{{ snmp_env_dest }}" }
+        - { src: mini-orch-loadtest.env.j2,               dest: "{{ loadtest_env_dest }}" }
+        - { src: mini-orch-status-consumer.env.j2,        dest: "{{ status_consumer_env_dest }}" }
+        - { src: mini-orch-publish-failed-checker.env.j2, dest: "{{ publish_failed_checker_env_dest }}" }
 
     # ── Service unit files ────────────────────────────────────────────────
     - name: Create systemd service for node1 API
@@ -263,12 +263,12 @@
         mode: "0755"
 
     - name: Create node2 worker environment file
-      ansible.builtin.copy:
-        src: "{{ worker_env_src }}"
+      ansible.builtin.template:
+        src: mini-orch-worker.env.j2
         dest: "{{ worker_env_dest }}"
         owner: root
         group: root
-        mode: "0644"
+        mode: "0640"
 
     - name: Create systemd service for node2 worker
       ansible.builtin.copy:

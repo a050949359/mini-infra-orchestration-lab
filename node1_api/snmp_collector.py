@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import time
 
 import redis
+
+from config import SnmpConfig, load_snmp_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,26 +15,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-REDIS_URL = os.getenv("SNMP_REDIS_URL", "redis://localhost:6379/1")
-SNMP_COMMUNITY = os.getenv("SNMP_COMMUNITY", "public")
-POLL_INTERVAL = int(os.getenv("SNMP_POLL_INTERVAL", "5"))
-RETENTION_SEC = int(os.getenv("SNMP_RETENTION_HOURS", "3")) * 3600
-
-NODES: list[tuple[str, str]] = [("node1", os.getenv("NODE1_HOST", "127.0.0.1"))]
-if os.getenv("NODE2_HOST"):
-    NODES.append(("node2", os.getenv("NODE2_HOST", "")))
-
-OIDS: dict[str, str] = {
-    "cpu_load1":    "1.3.6.1.4.1.2021.10.1.3.1",
-    "mem_total_kb": "1.3.6.1.4.1.2021.4.5.0",
-    "mem_avail_kb": "1.3.6.1.4.1.2021.4.6.0",
-}
-
-
-def snmp_get(host: str, oid: str) -> float | None:
+def snmp_get(host: str, oid: str, community: str) -> float | None:
     try:
         r = subprocess.run(
-            ["snmpget", "-v2c", "-c", SNMP_COMMUNITY, "-Oqv", host, oid],
+            ["snmpget", "-v2c", "-c", community, "-Oqv", host, oid],
             capture_output=True, text=True, timeout=5,
         )
         if r.returncode == 0:
@@ -43,35 +28,36 @@ def snmp_get(host: str, oid: str) -> float | None:
     return None
 
 
-def collect(rdb: redis.Redis) -> None:
+def collect(rdb: redis.Redis, cfg: SnmpConfig) -> None:
     ts = time.time()
     pipe = rdb.pipeline()
 
-    for label, host in NODES:
-        for metric, oid in OIDS.items():
-            val = snmp_get(host, oid)
+    for label, host in cfg.nodes:
+        for metric, oid in cfg.oids.items():
+            val = snmp_get(host, oid, cfg.community)
             if val is None:
                 continue
             key = f"snmp:{label}:{metric}"
             pipe.zadd(key, {f"{ts:.3f}:{val}": ts})
-            pipe.expire(key, RETENTION_SEC)
+            pipe.expire(key, cfg.retention_sec)
 
     pipe.execute()
 
 
 def main() -> None:
-    rdb = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    cfg = load_snmp_config()
+    rdb = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
     log.info(
         "snmp_collector started nodes=%s interval=%ds retention=%dh",
-        [n for n, _ in NODES], POLL_INTERVAL, RETENTION_SEC // 3600,
+        [n for n, _ in cfg.nodes], cfg.poll_interval, cfg.retention_sec // 3600,
     )
 
     while True:
         try:
-            collect(rdb)
+            collect(rdb, cfg)
         except Exception as exc:
             log.error("collect error: %s", exc)
-        time.sleep(POLL_INTERVAL)
+        time.sleep(cfg.poll_interval)
 
 
 if __name__ == "__main__":

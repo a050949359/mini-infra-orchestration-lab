@@ -1,16 +1,35 @@
 ---
+# ── 部署前必填（不可留空，不可 commit 真實值） ────────────────────────────────
+#
+# redis_password：Redis 認證密碼
+# node1_ip：node1 的內網 IP，供 node2 worker 連線 Redis 使用
+# node2_ip：node2 的內網 IP，填入 SNMP_NODES（mini-orch-snmp.env.j2）
+# api_key：Flask API 端點的認證金鑰（尚未實作，預留給後續 API 認證使用）
+redis_password: "REDIS_PASSWORD"
+node1_ip: "NODE1_PRIVATE_IP"
+node2_ip: "NODE2_PRIVATE_IP"
+api_key: "API_KEY"
 
-api_env_src: ../config/node1/mini-orch-api.env
+
+# ── SNMP 採集設定 ──────────────────────────────────────────────────────────────
+# snmp_nodes：格式 "label:ip"，新增節點直接在後面加一行
+# snmp_oids：格式 "metric:oid"，新增採集項目直接在後面加一行
+snmp_nodes:
+  - "node1:127.0.0.1"
+  - "node2:{{ node2_ip }}"
+
+snmp_oids:
+  - "cpu_load1:1.3.6.1.4.1.2021.10.1.3.1"
+  - "mem_total_kb:1.3.6.1.4.1.2021.4.5.0"
+  - "mem_avail_kb:1.3.6.1.4.1.2021.4.6.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 api_env_dest: /etc/mini-orch-api.env
-snmp_env_src: ../config/node1/mini-orch-snmp.env
 snmp_env_dest: /etc/mini-orch-snmp.env
-loadtest_env_src: ../config/node1/mini-orch-loadtest.env
 loadtest_env_dest: /etc/mini-orch-loadtest.env
-status_consumer_env_src: ../config/node1/mini-orch-status-consumer.env
 status_consumer_env_dest: /etc/mini-orch-status-consumer.env
-publish_failed_checker_env_src: ../config/node1/mini-orch-publish-failed-checker.env
 publish_failed_checker_env_dest: /etc/mini-orch-publish-failed-checker.env
-worker_env_src: ../config/node2/mini-orch-worker.env
 worker_env_dest: /etc/mini-orch-worker.env
 
 api_venv_path: /opt/mini-orch-venv

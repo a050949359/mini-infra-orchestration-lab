@@ -9,6 +9,7 @@ from typing import Any
 import redis
 from config import load_app_config
 from flask import Flask, g, jsonify, request
+from markupsafe import escape
 from models import parse_job_request
 
 
@@ -127,8 +128,7 @@ def create_app() -> Flask:
                     {
                         "job_id": job_id,
                         "status": "publish_failed",
-                        "error": "failed to append job to redis stream",
-                        "error_detail": str(exc),
+                        "error": "internal server error",
                     }
                 ),
                 503,
@@ -452,7 +452,7 @@ def create_app() -> Flask:
             runs_html_parts.append(
                 f'<details><summary style="cursor:pointer;list-style:none">'
                 f'<div class="run-sum">'
-                f'<span class="rid">{r["run_id"]}</span>'
+                f'<span class="rid">{escape(r["run_id"])}</span>'
                 f'<span class="lbl">{r["total"]} jobs</span>{badge}'
                 f'</div>'
                 f'<div class="pbar">{pb}</div>'

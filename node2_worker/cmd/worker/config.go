@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -48,15 +49,27 @@ type appConfig struct {
 	worker        workerConfig
 }
 
+func buildRedisURL(host, port, db, passwd string) string {
+	return fmt.Sprintf("redis://:%s@%s:%s/%s", passwd, host, port, db)
+}
+
 func loadConfig() appConfig {
-	redisURL := os.Getenv("REDIS_URL")
-	if redisURL == "" {
-		log.Fatal("REDIS_URL must be set")
+	node1Host := os.Getenv("NODE1_REDIS_HOST")
+	if node1Host == "" {
+		log.Fatal("NODE1_REDIS_HOST must be set")
 	}
-	node2RedisURL := os.Getenv("NODE2_REDIS_URL")
-	if node2RedisURL == "" {
-		log.Fatal("NODE2_REDIS_URL must be set")
-	}
+	redisURL := buildRedisURL(
+		node1Host,
+		getenv("NODE1_REDIS_PORT", "6379"),
+		getenv("NODE1_REDIS_DB", "0"),
+		os.Getenv("NODE1_REDIS_PASSWD"),
+	)
+	node2RedisURL := buildRedisURL(
+		getenv("NODE2_REDIS_HOST", "127.0.0.1"),
+		getenv("NODE2_REDIS_PORT", "6379"),
+		getenv("NODE2_REDIS_DB", "0"),
+		os.Getenv("NODE2_REDIS_PASSWD"),
+	)
 	return appConfig{
 		redisURL:      redisURL,
 		node2RedisURL: node2RedisURL,

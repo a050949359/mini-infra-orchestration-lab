@@ -60,8 +60,8 @@ ansible-playbook /etc/ansible/deploy.yaml
 
 ```bash
 sudo iptables -I INPUT -p tcp -s <remote ip> --dport 5001 -j ACCEPT
-sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 5000 -j ACCEPT
-sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 6379 -j ACCEPT
+sudo iptables -I INPUT -p tcp -s NODE2_PRIVATE_IP/32 --dport 5000 -j ACCEPT
+sudo iptables -I INPUT -p tcp -s NODE2_PRIVATE_IP/32 --dport 6379 -j ACCEPT
 ```
 
 ### node2
@@ -69,7 +69,7 @@ sudo iptables -I INPUT -p tcp -s 10.0.0.48/32 --dport 6379 -j ACCEPT
 - 開放 SNMP（UDP 161）給 node1，讓壓測期間可收集 node2 狀態
 
 ```bash
-sudo iptables -I INPUT -p udp -s 10.0.0.143/32 --dport 161 -j ACCEPT
+sudo iptables -I INPUT -p udp -s NODE1_PRIVATE_IP/32 --dport 161 -j ACCEPT
 ```
 
 ### 雲端還需要額外設定雲端的防火牆
@@ -92,8 +92,8 @@ agentaddress <node2-private-ip>:161
 # 此行 node1 也需要加
 view   systemonly  included   .1.3.6.1.4.1.2021
 
-rocommunity  public 10.0.0.0/24 -V systemonly
-rocommunity6:  public 10.0.0.0/24 -V systemonly
+rocommunity  public NODE_SUBNET/24 -V systemonly
+rocommunity6:  public NODE_SUBNET/24 -V systemonly
 ```
 
 儲存後重啟：
