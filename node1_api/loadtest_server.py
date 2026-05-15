@@ -57,7 +57,7 @@ def start_run() -> Any:
     if not os.path.isfile(script_path):
         return jsonify({"error": f"script not found: {script_name}"}), 400
 
-    api_url = body.get("api_url", "http://localhost:5000")
+    api_url = body.get("api_url", "https://localhost:5000")
 
     extra_args: list[str] = []
     if "vus" in body:

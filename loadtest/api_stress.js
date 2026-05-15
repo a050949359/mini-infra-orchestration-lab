@@ -5,10 +5,11 @@ import { Rate, Trend } from 'k6/metrics';
 const errorRate = new Rate('error_rate');
 const enqueueDuration = new Trend('enqueue_duration_ms', true);
 
-const BASE_URL = __ENV.API_URL || 'http://localhost:5000';
+const BASE_URL = __ENV.API_URL || 'https://localhost:5000';
 const RUN_ID = __ENV.RUN_ID || '';
 
 export const options = {
+  insecureSkipTLSVerify: true,
   stages: [
     { duration: '30s', target: 20 },
     { duration: '60s', target: 50 },

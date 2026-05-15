@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:5000}"
+BASE_URL="${BASE_URL:-https://127.0.0.1:5000}"
 OUT_FILE="${OUT_FILE:-/tmp/node1_job_id.txt}"
 
-RESPONSE="$(curl -sS -X POST "${BASE_URL}/api/v1/jobs" \
+RESPONSE="$(curl -sSk -X POST "${BASE_URL}/api/v1/jobs" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "process_data",
