@@ -59,3 +59,9 @@ worker_service_name: mini-orch-worker
 
 worker_log_file: /var/log/mini-orch/worker.log
 
+# ── TLS 自簽憑證 ───────────────────────────────────────────────────────────────
+api_cert_dir: /etc/mini-orch/certs/api
+loadtest_cert_dir: /etc/mini-orch/certs/loadtest
+cert_renew_log: /var/log/mini-orch/cert-renew.log
+cert_renew_script: /usr/local/bin/mini-orch-cert-renew.sh
+

@@ -107,4 +107,7 @@ def get_run(run_id: str) -> Any:
 if __name__ == "__main__":
     host = os.getenv("LOADTEST_BIND_HOST") or "127.0.0.1"
     port = int(os.getenv("LOADTEST_PORT", "5001"))
-    app.run(host=host, port=port)
+    ssl_cert = os.getenv("SSL_CERT")
+    ssl_key = os.getenv("SSL_KEY")
+    ssl_context = (ssl_cert, ssl_key) if ssl_cert and ssl_key else None
+    app.run(host=host, port=port, ssl_context=ssl_context)

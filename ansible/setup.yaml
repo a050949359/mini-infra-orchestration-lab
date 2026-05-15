@@ -21,6 +21,7 @@
           - snmpd
           - net-tools
           - iproute2
+          - openssl
         state: present
 
     - name: Enable and start Redis
@@ -109,6 +110,58 @@
         name: k6
         update_cache: true
         state: present
+
+    - name: Create TLS cert directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+      loop:
+        - "{{ api_cert_dir }}"
+        - "{{ loadtest_cert_dir }}"
+
+    - name: Generate self-signed certs (90 days)
+      ansible.builtin.shell:
+        cmd: |
+          openssl req -x509 -nodes -newkey rsa:2048 \
+            -keyout {{ item.dir }}/key.pem \
+            -out {{ item.dir }}/cert.pem \
+            -days 90 -subj "/CN=mini-orch-{{ item.name }}"
+          chmod 640 {{ item.dir }}/key.pem {{ item.dir }}/cert.pem
+        creates: "{{ item.dir }}/cert.pem"
+      loop:
+        - { name: api,      dir: "{{ api_cert_dir }}" }
+        - { name: loadtest, dir: "{{ loadtest_cert_dir }}" }
+
+    - name: Install cert renewal script
+      ansible.builtin.copy:
+        dest: "{{ cert_renew_script }}"
+        owner: root
+        group: root
+        mode: "0750"
+        content: |
+          #!/bin/bash
+          set -euo pipefail
+          for name in api loadtest; do
+            dir="/etc/mini-orch/certs/$name"
+            openssl req -x509 -nodes -newkey rsa:2048 \
+              -keyout "$dir/key.pem" -out "$dir/cert.pem" \
+              -days 90 -subj "/CN=mini-orch-$name"
+            chmod 640 "$dir/key.pem" "$dir/cert.pem"
+          done
+          systemctl reload-or-restart mini-orch-api mini-orch-loadtest
+
+    - name: Schedule cert renewal via cron (every 90 days)
+      ansible.builtin.cron:
+        name: mini-orch cert renewal
+        minute: "0"
+        hour: "3"
+        day: "1"
+        month: "*/3"
+        user: root
+        job: "{{ cert_renew_script }} >> {{ cert_renew_log }} 2>&1"
 
     - name: Show control node setup summary
       ansible.builtin.debug:

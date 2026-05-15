@@ -128,7 +128,9 @@
           Type=simple
           EnvironmentFile={{ api_env_dest }}
           WorkingDirectory={{ api_app_dir }}
-          ExecStart={{ api_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
+          ExecStart={{ api_venv_path }}/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 \
+            --certfile {{ api_cert_dir }}/cert.pem --keyfile {{ api_cert_dir }}/key.pem \
+            app:app
           Restart=always
           RestartSec=3
           StandardOutput=append:{{ api_log_file }}
