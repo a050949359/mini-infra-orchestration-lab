@@ -5,8 +5,9 @@
 - **node1**：Flask API，使用 Redis Stream 接收任務並 enqueue
 - **node2**：Go worker，多 goroutine 消化 queue 工作，狀態寫回 node1 Redis Stream
 - **容錯**：node2 → node1 status 寫入失敗時暫存至 node2 local Redis，定期重試
-- **壓測**：K6 staged ramp-up，透過 Loadtest API 外部控制參數
+- **壓測 API**：Loadtest API（port 5001）外部控制 k6 參數，支援 vus / duration / script 三個欄位，非同步回傳 run_id 供輪詢結果
 - **監控**：SNMP 收集兩台主機 CPU / 記憶體，存 Redis 供壓測報告使用
+- **TLS**：node1 兩支服務（API port 5000、Loadtest port 5001）均以自簽憑證跑 HTTPS；setup.yaml 自動產生憑證，cron 每 90 天重簽並重啟服務
 
 ## 控制與遠端安裝
 
