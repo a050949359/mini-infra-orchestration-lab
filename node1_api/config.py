@@ -56,18 +56,18 @@ class CheckerConfig:
 def load_snmp_config() -> SnmpConfig:
     host, port, db, passwd = _redis_components()
     raw_nodes = os.getenv("SNMP_NODES", "node1:127.0.0.1")
-    nodes = [
-        (label, ip)
-        for entry in raw_nodes.split(",")
-        if ":" in (entry := entry.strip())
-        for label, ip in [entry.split(":", 1)]
-    ]
-    oids = {
-        label: oid
-        for entry in os.getenv("SNMP_OIDS", "").split(",")
-        if ":" in (entry := entry.strip())
-        for label, oid in [entry.split(":", 1)]
-    }
+    nodes = []
+    for _e in raw_nodes.split(","):
+        _e = _e.strip()
+        if ":" in _e:
+            _label, _ip = _e.split(":", 1)
+            nodes.append((_label, _ip))
+    oids = {}
+    for _e in os.getenv("SNMP_OIDS", "").split(","):
+        _e = _e.strip()
+        if ":" in _e:
+            _label, _oid = _e.split(":", 1)
+            oids[_label] = _oid
     return SnmpConfig(
         redis_url=_build_redis_url(host, port, db, passwd),
         community=os.getenv("SNMP_COMMUNITY", "public"),
