@@ -204,7 +204,7 @@ Metrics：`cpu_load1` `mem_total_kb` `mem_avail_kb`
 ```json
 {
   "script": "api_stress.js",
-  "api_url": "http://localhost:5000",
+  "api_url": "https://localhost:5000",
   "vus": 50,
   "duration": "60s"
 }
@@ -213,7 +213,7 @@ Metrics：`cpu_load1` `mem_total_kb` `mem_avail_kb`
 | 欄位 | 說明 | 預設 |
 |---|---|---|
 | `script` | `LOADTEST_SCRIPT_DIR` 下的檔名 | `api_stress.js` |
-| `api_url` | 壓測目標 | `http://localhost:5000` |
+| `api_url` | 壓測目標 | `https://localhost:5000` |
 | `vus` | Virtual Users | k6 script 預設 |
 | `duration` | 執行時長 | k6 script 預設 |
 
@@ -242,7 +242,7 @@ Metrics：`cpu_load1` `mem_total_kb` `mem_avail_kb`
   "run_id": "...",
   "status": "done",
   "script": "api_stress.js",
-  "api_url": "http://localhost:5000",
+  "api_url": "https://localhost:5000",
   "vus": 50,
   "duration": "60s",
   "started_at": "...",

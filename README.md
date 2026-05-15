@@ -141,12 +141,12 @@ Loadtest API 運行於 node1 port `5001`，透過 HTTP 啟動 k6 壓測並在結
 ### 啟動壓測
 
 ```bash
-curl -s -X POST http://<node1-ip>:5001/api/v1/loadtest/runs \
+curl -sk -X POST https://<node1-ip>:5001/api/v1/loadtest/runs \
   -H 'Content-Type: application/json' \
   -d '{
     "vus": 20,
     "duration": "30s",
-    "api_url": "http://localhost:5000"
+    "api_url": "https://localhost:5000"
   }' | jq .
 # → {"run_id": "...", "status": "running", "started_at": "..."}
 ```
@@ -157,7 +157,7 @@ curl -s -X POST http://<node1-ip>:5001/api/v1/loadtest/runs \
 |------|------|------|
 | `vus` | 固定併發數，覆蓋腳本 stages | 依腳本 |
 | `duration` | 測試時長（如 `"30s"`, `"2m"`），覆蓋腳本 stages | 依腳本 |
-| `api_url` | 壓測目標 URL | `http://localhost:5000` |
+| `api_url` | 壓測目標 URL | `https://localhost:5000` |
 | `script` | loadtest 目錄下的腳本檔名 | `api_stress.js` |
 
 ### 查詢結果
@@ -165,7 +165,7 @@ curl -s -X POST http://<node1-ip>:5001/api/v1/loadtest/runs \
 測試進行中回 `202 running`，結束後一次回傳完整結果：
 
 ```bash
-curl -s http://<node1-ip>:5001/api/v1/loadtest/runs/<run_id> | jq .
+curl -sk https://<node1-ip>:5001/api/v1/loadtest/runs/<run_id> | jq .
 ```
 
 結束後的 response：
